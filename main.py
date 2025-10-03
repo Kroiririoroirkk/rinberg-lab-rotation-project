@@ -448,7 +448,7 @@ def run_gui() -> None:
     style.configure('TLabel', background='light blue')
 
     main_frame = ttk.Frame(root, style='Invisible.TFrame')
-    main_frame.pack(padx=LARGE_PAD, side='left', fill='y')
+    main_frame.pack(padx=LARGE_PAD, side='left', fill='y', expand=True)
 
     ci_frame = ttk.Frame(main_frame)
     ci_frame.pack(pady=LARGE_PAD, fill='both', expand=True)
@@ -477,7 +477,7 @@ def run_gui() -> None:
     select_all_button.pack(side='left')
 
     side_frame = ttk.Frame(root, style='Invisible.TFrame')
-    side_frame.pack(padx=(0, LARGE_PAD), side='right', fill='y')
+    side_frame.pack(padx=(0, LARGE_PAD), side='right', fill='y', expand=True)
 
     display_frame = ttk.Frame(side_frame)
     display_frame.pack(pady=LARGE_PAD, fill='both', expand=True)
