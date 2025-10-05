@@ -29,7 +29,7 @@ from matplotlib.figure import Figure
 from numpy.typing import NDArray
 from PIL import Image, ImageDraw, ImageTk
 
-ROI_ZIP_PATH: Final[Path] = Path('data/GLOM/ROIs/RoiSet.zip')
+ROI_ZIP_PATH: Final[Path] = Path('data/GLOM/ROIs/RoiSet_ET_2025-10-02.zip')
 TIF_FOLDER: Final[Path] = Path('data/GLOM/TIFFs')
 H5_PATH: Final[Path] = Path(
     'data/GLOM/mouse0953_sess20_D2025_8_18T12_36_43.h5')
@@ -38,11 +38,12 @@ FRAMES_AVG_START: Final[int] = 0
 FRAMES_AVG_END: Final[int] = 100
 BASELINE_AVG_START: Final[int] = 0
 BASELINE_AVG_END: Final[int] = 100
-DEFAULT_WINDOW_SIZE: Final[str] = '1600x800'
+DEFAULT_WINDOW_SIZE: Final[str] = '1600x850'
 SMALL_PAD: int = 10
 MEDIUM_PAD: int = 20
-LARGE_PAD: int = 50
+LARGE_PAD: int = 30
 HEADING_FONT: Font = ('', 18)
+SMOOTHING_DISTANCE: int = 5
 
 
 class Odor(Enum):
@@ -205,9 +206,13 @@ def load_image(tif_path: Path) -> NDArray[np.int16]:
 
 
 def render_frame(tiff_arr: NDArray[np.int16], rois: OrderedDict[ROIName, ROI],
-                 rois_focused: list[ROIName],
-                 frame: int) -> ImageTk.PhotoImage:
-    tiff_image = Image.fromarray(tiff_arr[frame])
+                 rois_focused: list[ROIName], frame: int,
+                 smoothen: bool) -> Image:
+    if smoothen:
+        tiff_image = Image.fromarray(
+            np.mean(tiff_arr[frame:frame + SMOOTHING_DISTANCE], axis=0))
+    else:
+        tiff_image = Image.fromarray(tiff_arr[frame])
     tiff_image_rgb = Image.new('RGB', tiff_image.size)
     tiff_image_rgb.paste(tiff_image)
     draw = ImageDraw.Draw(tiff_image_rgb)
@@ -231,16 +236,12 @@ def render_frame(tiff_arr: NDArray[np.int16], rois: OrderedDict[ROIName, ROI],
               fill='red',
               font_size=24,
               anchor='rt')
-    # If we don't use a nonlocal variable here, the image will be
-    # garbage-collected
-    global tiff_photo_image
-    tiff_photo_image = ImageTk.PhotoImage(image=tiff_image_rgb)
-    return tiff_photo_image
+    return tiff_image_rgb
 
 
 def render_thumbnail(tiff_arr: NDArray[np.int16], rois: OrderedDict[ROIName,
                                                                     ROI],
-                     rois_focused: list[ROIName]) -> ImageTk.PhotoImage:
+                     rois_focused: list[ROIName]) -> Image:
     tiff_arr_avg = np.mean(tiff_arr[FRAMES_AVG_START:FRAMES_AVG_END], axis=0)
     tiff_image = Image.fromarray(tiff_arr_avg)
     tiff_image_rgb = Image.new('RGB', tiff_image.size)
@@ -259,11 +260,7 @@ def render_thumbnail(tiff_arr: NDArray[np.int16], rois: OrderedDict[ROIName,
                       font_size=24)
         else:
             draw.ellipse([x0, y0, x1, y1], outline='blue', width=3)
-    # If we don't use a nonlocal variable here, the image will be
-    # garbage-collected
-    global tiff_photo_image
-    tiff_photo_image = ImageTk.PhotoImage(image=tiff_image_rgb)
-    return tiff_photo_image
+    return tiff_image_rgb
 
 
 def is_in_roi(x: int, y: int, roi: ROI) -> bool:
@@ -289,7 +286,7 @@ def render_behavioral_plot(fig: Figure, metadata: TrialMetadata,
         ax.plot(metadata.sniff_times - offset,
                 metadata.sniff_values,
                 label='Sniff')
-        ax.axvline(metadata.odor_time - offset, color='red', label='Odor')
+        ax.axvline(metadata.odor_time - offset, color='black', label='Odor')
         ax.axvspan(0,
                    metadata.frame_times[-1] - offset,
                    alpha=0.1,
@@ -330,24 +327,24 @@ def render_fluorescence_plot(fig: Figure, metadata: TrialMetadata,
     if frame is None:
         fig.clf()
         if rois_focused:
-            xs, ys = np.indices(tiff_arr.shape[1:])
+            ys, xs = np.indices(tiff_arr.shape[1:])
             ax = fig.add_subplot()
             offset = metadata.frame_times[0]
             for i, roi_name in enumerate(rois_focused):
-                mask_one_frame = np.logical_not(
-                    is_in_roi(xs, ys, rois[roi_name]))
-                mask = np.tile(mask_one_frame, (tiff_arr.shape[0], 1, 1))
-                masked_arr = np.ma.masked_array(tiff_arr, mask)
-                f_vals = masked_arr.mean(axis=(1, 2)).data
+                indices_in_roi = is_in_roi(xs, ys, rois[roi_name])
+                f_vals = np.mean(tiff_arr[:, indices_in_roi], axis=1)
                 median_f_val = np.median(
                     f_vals[BASELINE_AVG_START:BASELINE_AVG_END])
                 df_vals = (f_vals - median_f_val) / median_f_val
                 ax.plot(metadata.frame_times - offset,
                         df_vals,
                         label=f'ROI {i+1}')
+            ax.axvline(metadata.odor_time - offset,
+                       color='black',
+                       label='Odor')
             ax.set_xlabel('Time (ms)')
             ax.set_ylabel('ΔF/F')
-            ax.set_ylim((-1, 1))
+            ax.set_ylim((-1.5, 1.5))
             ax.set_title('Fluoresence of highlighted ROI(s)')
             ax.legend()
         else:
@@ -397,45 +394,11 @@ def run_gui() -> None:
     tiff_arr = load_image(tif_path)
     metadata = h5_data[_tif_file_i]
     tk_image_job = None
+    resize_job = None
     rois = load_rois()
     rois_focused = []
     plot_setting = PlotSetting.BEHAVIOR
-
-    def update_job(job: str) -> None:
-        nonlocal tk_image_job
-        tk_image_job = job
-
-    def stop_job() -> None:
-        global cache_line_behavioral_plot, cache_line_fluorescence_plot
-        nonlocal tk_image_job
-        if tk_image_job:
-            tk_image.after_cancel(tk_image_job)
-            tk_image_job = None
-        if cache_line_behavioral_plot:
-            cache_line_behavioral_plot.remove()
-            cache_line_behavioral_plot = None
-        if cache_line_fluorescence_plot:
-            cache_line_fluorescence_plot.remove()
-            cache_line_fluorescence_plot = None
-
-    def get_tif_file_i() -> int:
-        return _tif_file_i
-
-    def set_tif_file_i(i: int) -> None:
-        nonlocal _tif_file_i, tif_path, tiff_arr, metadata
-        _tif_file_i = i % len(tif_files)
-        tif_path = tif_files[_tif_file_i]
-        tiff_arr = load_image(tif_path)
-        metadata = h5_data[_tif_file_i]
-        stop_job()
-
-    def set_rois_focused(r: list[ROIName]) -> None:
-        nonlocal rois_focused
-        rois_focused = r
-
-    def set_plot_setting(s: PlotSetting) -> None:
-        nonlocal plot_setting
-        plot_setting = s
+    image = None  # prevent garbage collection of image
 
     root = tk.Tk()
     root.title('Calcium imaging analyzer')
@@ -463,8 +426,9 @@ def run_gui() -> None:
     left_button.pack(side='left', padx=SMALL_PAD)
     right_button = ttk.Button(ci_frame, text='>>')
     right_button.pack(side='right', padx=SMALL_PAD)
-    tk_image = ttk.Label(ci_frame)
+    tk_image = tk.Canvas(ci_frame)
     tk_image.pack(pady=SMALL_PAD)
+
     button_frame = ttk.Frame(ci_frame)
     button_frame.pack(pady=(0, SMALL_PAD))
     play_button = ttk.Button(button_frame, text='Play')
@@ -474,7 +438,28 @@ def run_gui() -> None:
     stop_button = ttk.Button(button_frame, text='Stop')
     stop_button.pack(side='left', padx=(0, SMALL_PAD))
     select_all_button = ttk.Button(button_frame, text='Select All')
-    select_all_button.pack(side='left')
+    select_all_button.pack(side='left', padx=(0, SMALL_PAD))
+    jump_to_button = ttk.Button(button_frame, text='Jump to...')
+    jump_to_button.pack(side='left', padx=(0, SMALL_PAD))
+    jump_to_var = tk.StringVar()
+    jump_to_text_box = ttk.Entry(button_frame,
+                                 textvariable=jump_to_var,
+                                 width=5)
+    jump_to_text_box.pack(side='left')
+
+    button2_frame = ttk.Frame(ci_frame)
+    button2_frame.pack(pady=(0, SMALL_PAD))
+    start_from_odor_var = tk.BooleanVar()
+    start_from_odor_button = ttk.Checkbutton(
+        button2_frame,
+        text='Play from odor presentation?',
+        variable=start_from_odor_var)
+    start_from_odor_button.pack(side='left', padx=(0, SMALL_PAD))
+    smoothen_video_var = tk.BooleanVar()
+    smoothen_video_button = ttk.Checkbutton(button2_frame,
+                                            text='Smoothen video?',
+                                            variable=smoothen_video_var)
+    smoothen_video_button.pack(side='left')
 
     side_frame = ttk.Frame(root, style='Invisible.TFrame')
     side_frame.pack(padx=(0, LARGE_PAD), side='right', fill='y', expand=True)
@@ -502,17 +487,72 @@ def run_gui() -> None:
         button.pack(padx=int(SMALL_PAD / 2), side='left')
         plot_buttons.append(button)
 
+    def update_job(job: str) -> None:
+        nonlocal tk_image_job
+        tk_image_job = job
+
+    def stop_job() -> None:
+        global cache_line_behavioral_plot, cache_line_fluorescence_plot
+        nonlocal tk_image_job
+        if tk_image_job:
+            tk_image.after_cancel(tk_image_job)
+            tk_image_job = None
+        if cache_line_behavioral_plot:
+            cache_line_behavioral_plot.remove()
+            cache_line_behavioral_plot = None
+        if cache_line_fluorescence_plot:
+            cache_line_fluorescence_plot.remove()
+            cache_line_fluorescence_plot = None
+
+    def update_resize_job(job: str) -> None:
+        nonlocal resize_job
+        resize_job = job
+
+    def stop_resize_job() -> None:
+        nonlocal resize_job
+        if resize_job:
+            root.after_cancel(resize_job)
+            resize_job = None
+
+    def get_tif_file_i() -> int:
+        return _tif_file_i
+
+    def set_tif_file_i(i: int) -> None:
+        nonlocal _tif_file_i, tif_path, tiff_arr, metadata
+        _tif_file_i = i % len(tif_files)
+        tif_path = tif_files[_tif_file_i]
+        tiff_arr = load_image(tif_path)
+        metadata = h5_data[_tif_file_i]
+        stop_job()
+
+    def set_rois_focused(r: list[ROIName]) -> None:
+        nonlocal rois_focused
+        rois_focused = r
+
+    def set_plot_setting(s: PlotSetting) -> None:
+        nonlocal plot_setting
+        plot_setting = s
+
+    def set_ci_image(img: Image) -> None:
+        nonlocal image
+        size = (tk_image.winfo_reqwidth(), tk_image.winfo_reqheight())
+        img_r = img.resize(size)
+        image = ImageTk.PhotoImage(img_r)
+        tk_image.delete('IMG')
+        tk_image.create_image(0, 0, image=image, anchor='nw', tags='IMG')
+
     def update(redraw_image: bool = True,
                redraw_figure: bool = True,
-               frame: int | None = None) -> None:
+               frame: int | None = None,
+               smoothen: bool = False) -> None:
         if redraw_image:
             ci_label.configure(text=load_caption(tif_path, metadata))
             if frame is None:
-                tk_image.configure(
-                    image=render_thumbnail(tiff_arr, rois, rois_focused))
+                set_ci_image(render_thumbnail(tiff_arr, rois, rois_focused))
             else:
-                tk_image.configure(
-                    image=render_frame(tiff_arr, rois, rois_focused, frame))
+                set_ci_image(
+                    render_frame(tiff_arr, rois, rois_focused, frame,
+                                 smoothen))
         if redraw_figure:
             render_plot(fig, plot_setting, metadata, tiff_arr, rois,
                         rois_focused, frame)
@@ -529,18 +569,26 @@ def run_gui() -> None:
 
     def on_play_button(speed: float) -> None:
 
-        def render(i: int) -> None:
+        def render(i: int, smoothen: bool) -> None:
             if i + 1 < tiff_arr.shape[0]:
-                update(frame=i)
-                dt = metadata.frame_times[i + 1] - metadata.frame_times[i]
+                update(frame=i, smoothen=smoothen)
+                dt = int(
+                    (metadata.frame_times[i + 1] - metadata.frame_times[i]) /
+                    speed)
                 update_job(
-                    tk_image.after(int(dt / speed), lambda: render(i + 1)))
+                    tk_image.after(dt if dt > 0 else 0,
+                                   lambda: render(i + 1, smoothen)))
             else:
                 stop_job()
                 update()
 
         stop_job()
-        render(0)
+
+        if start_from_odor_var.get():
+            i = np.argmax(metadata.frame_times > metadata.odor_time)
+            render(i - 5 if i > 5 else 0, smoothen_video_var.get())
+        else:
+            render(0, smoothen_video_var.get())
 
     def on_stop_button() -> None:
         stop_job()
@@ -550,6 +598,14 @@ def run_gui() -> None:
         stop_job()
         set_rois_focused(list(rois.keys()))
         update()
+
+    def on_jump_to_button() -> None:
+        try:
+            i = jump_to_var.get()
+            set_tif_file_i(int(i) - 1)
+            update()
+        except ValueError:
+            pass
 
     def on_roi_click(roi_name: ROIName | None, shift_pressed: bool) -> None:
         stop_job()
@@ -580,15 +636,30 @@ def run_gui() -> None:
         set_plot_setting(PlotSetting(plot_var.get()))
         update()
 
+    def on_resize_window(event: tk.Event) -> None:
+        if event.widget == root:
+            new_width = event.width
+            new_height = event.height
+            ci_image_size = int(0.6 * min(new_width, new_height))
+            tk_image.configure(width=ci_image_size, height=ci_image_size)
+            plot_height = int(0.6 * new_height)
+            plot_width = int(1.4 * plot_height)
+            canvas.get_tk_widget().configure(width=plot_width,
+                                             height=plot_height)
+            stop_resize_job()
+            update_resize_job(root.after(1000, update))
+
     left_button.configure(command=on_left_button)
     right_button.configure(command=on_right_button)
     play_button.configure(command=lambda: on_play_button(1))
     play_slow_button.configure(command=lambda: on_play_button(0.2))
     stop_button.configure(command=on_stop_button)
     select_all_button.configure(command=on_select_all_button)
+    jump_to_button.configure(command=on_jump_to_button)
     tk_image.bind('<Button>', on_image_click)
     for b in plot_buttons:
         b.configure(command=on_plot_setting_button)
+    root.bind('<Configure>', on_resize_window)
     update()
 
     root.mainloop()
