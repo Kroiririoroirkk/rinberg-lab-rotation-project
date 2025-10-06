@@ -11,12 +11,14 @@ Date last updated: 2025-10-03
 """
 import h5py
 import matplotlib.pyplot as plt
+import numpy as np
 from pathlib import Path
+import scipy.signal
+import scipy.stats
 
 DATA_DIR = Path('data/rotationdata/251003_passive_test2')
 PID_H5 = Path(DATA_DIR, '251003_PID_0001-0120.h5')
-# TODO: this is not the right file
-ODOR_H5 = Path(DATA_DIR, 'mouse0953_sess26_D2025_10_2T14_21_34.h5')
+ODOR_H5 = Path(DATA_DIR, 'mouse0001_sess0_D2025_10_3T10_59_9.h5')
 FVALVE_CHANNEL = 3
 PID_CHANNEL = 4
 
@@ -79,6 +81,11 @@ def calc_dilution():
     }
 
 
+def lowpass(data, cutoff=0.001, order=5):
+    b, a = scipy.signal.butter(order, cutoff, btype='low')
+    return scipy.signal.filtfilt(b, a, data)
+
+
 def detect_valve_on(valve_signal):
     """Detect when the valve turns on.
 
@@ -111,7 +118,7 @@ def detect_valve_on(valve_signal):
         if valve_signal[i] > 100:
             # print('Valve needs to stay off.')
             return None
-    return jump_on_time
+    return jump_on_time, jump_off_time
 
 
 if __name__ == '__main__':
@@ -131,18 +138,45 @@ if __name__ == '__main__':
         pid_sweep = pid_f[f'sweep_{i+1:04d}']
         final_valve = pid_sweep['analogScans'][FVALVE_CHANNEL]
         pid_reading = pid_sweep['analogScans'][PID_CHANNEL]
-        print(detect_valve_on(final_valve))
-        plt.plot(final_valve, label='valve')
-        plt.plot(pid_reading, label='PID')
-        plt.legend()
-        plt.show()
+        filt_pid_reading = lowpass(pid_reading)
+        valve_on_off = detect_valve_on(final_valve)
+        if valve_on_off is None:
+            continue
+        valve_on, valve_off = valve_on_off
         # Calculate ΔV/V of PID reading, adjusted by dilution ratio
         dilution_ratio = dilution_ratios[i] / 1000
-        est_partial_pressure = None  # TODO
-        mole_fractions_trial.append(mole_fraction)
+        med = np.median(filt_pid_reading[:20000])
+        peak = np.max(filt_pid_reading[valve_on:valve_off])
+        valley = np.min(filt_pid_reading[valve_on:valve_off])
+        if peak - med > med - valley:
+            reading = peak - med
+        else:
+            reading = valley - med
+        est_partial_pressure = reading / med
+        mole_fractions_trial.append(mole_fraction * dilution_ratio)
         est_partial_pressure_trial.append(est_partial_pressure)
-    plt.scatter(mole_fractions_trial, est_partial_pressure)
+        # plt.plot(final_valve, label='valve')
+        # plt.plot(pid_reading, label='PID')
+        # plt.axhline(med, color='red', linewidth=0.5)
+        # plt.axhline(med + reading, color='brown', linewidth=0.5)
+        # plt.legend()
+        # plt.show()
+    mole_fractions_trial = np.array(mole_fractions_trial)
+    est_partial_pressure_trial = np.array(est_partial_pressure_trial)
+    plt.scatter(mole_fractions_trial, est_partial_pressure_trial)
     plt.title('Raoult\'s law plot for ethyl tiglate')
-    plt.xlabel('Mole fraction of ET in liquid mixture')
-    plt.ylabel('Partial pressure (relative units)')
+    plt.xlabel('Mole fraction of ET in liquid mixture × dilution ratio')
+    plt.ylabel('Partial pressure (estimated by PID ΔV/V)')
+    trials = (1e-9 < mole_fractions_trial) & (mole_fractions_trial < 0.001) & (
+        1e-9 < est_partial_pressure_trial)
+    x = np.log(mole_fractions_trial[trials])
+    y = np.log(est_partial_pressure_trial[trials])
+    a, b, r, _, _ = scipy.stats.linregress(x, y)
+    line_domain = np.logspace(-8, -4, num=200, base=10)
+    plt.plot(line_domain,
+             np.exp(b) * (line_domain**a),
+             label=f'y={a:.2f}x+{b:.2f}, r²={r**2:.2f}')
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.legend()
     plt.show()
