@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -6,8 +7,9 @@ import tifffile
 from numpy.typing import NDArray
 from PIL import Image, ImageDraw
 
-from config import (HEAT_CMAP, MAX_DELTA_F, MIN_DELTA_F, NUM_FRAMES_AVG,
-                    NUM_FRAMES_BUYIN)
+from config import (BASELINE_AVG_END, BASELINE_AVG_START, HEAT_CMAP,
+                    MAX_DELTA_F, MIN_DELTA_F, NUM_FRAMES_AVG, NUM_FRAMES_BUYIN,
+                    TIF_EXPORT_PATH)
 from datatypes import ROIManager, ROIName, TrialMetadata
 
 
@@ -84,10 +86,10 @@ def render_frame(tiff_arr: NDArray[np.int16], rois: ROIManager,
     return tiff_image_rgb
 
 
-def render_thumbnail(tiff_arr: NDArray[np.int16], metadata: TrialMetadata,
-                     rois: ROIManager, rois_focused: list[ROIName],
-                     hide_rois: bool, spatial_blur: int,
-                     median_tiff_arr: NDArray[np.int16] | None) -> Image.Image:
+def render_thumbnail(
+        tiff_arr: NDArray[np.int16], metadata: TrialMetadata, rois: ROIManager,
+        rois_focused: list[ROIName], hide_rois: bool, spatial_blur: float,
+        median_tiff_arr: NDArray[np.float64] | None) -> Image.Image:
     start_frame = np.argmax(
         metadata.frame_times > metadata.odor_time) + NUM_FRAMES_BUYIN
     tiff_arr_processed = np.mean(tiff_arr[start_frame:start_frame +
@@ -105,3 +107,24 @@ def render_thumbnail(tiff_arr: NDArray[np.int16], metadata: TrialMetadata,
         draw = ImageDraw.Draw(tiff_image_rgb)
         _draw_rois(draw, rois, rois_focused)
     return tiff_image_rgb
+
+
+def calc_median_tiff_arr(tiff_arr: NDArray[np.int16]) -> NDArray[np.int16]:
+    return np.median(tiff_arr[BASELINE_AVG_START:BASELINE_AVG_END], axis=0)
+
+
+def export_tif(tif_files: list[Path], h5_data: list[TrialMetadata],
+               spatial_blur: float, plot_delta: bool) -> None:
+    im_list = []
+    for tif_path, metadata in zip(tif_files, h5_data):
+        print(tif_path)
+        with tifffile.TiffFile(tif_path) as tf:
+            tiff_arr = tf.asarray(range(len(tf.pages)))
+        if plot_delta:
+            median_tiff_arr = calc_median_tiff_arr(tiff_arr)
+        else:
+            median_tiff_arr = None
+        im = render_thumbnail(tiff_arr, metadata, ROIManager(OrderedDict()),
+                              [], True, spatial_blur, median_tiff_arr)
+        im_list.append(im)
+    im_list[0].save(TIF_EXPORT_PATH, append_images=im_list[1:])

@@ -21,13 +21,12 @@ from numpy.typing import NDArray
 from PIL import Image, ImageTk
 
 import calcium_image
-from config import (BASELINE_AVG_END, BASELINE_AVG_START, DEFAULT_SPATIAL_BLUR,
-                    DEFAULT_TEMPORAL_BLUR, DEFAULT_WINDOW_SIZE, H5_PATH,
-                    H5_PICKLE_PATH, HEADING_FONT, JOB_SCHEDULE_DELAY,
-                    LARGE_PAD, MEDIUM_PAD, ROI_ZIP_PATH, SLOW_SPEED, SMALL_PAD,
-                    TIF_FOLDER)
-from datatypes import PlotSetting, ROIManager, ROIName, TrialMetadata
 import plots
+from config import (DEFAULT_SPATIAL_BLUR, DEFAULT_TEMPORAL_BLUR,
+                    DEFAULT_WINDOW_SIZE, H5_PATH, H5_PICKLE_PATH, HEADING_FONT,
+                    JOB_SCHEDULE_DELAY, LARGE_PAD, MEDIUM_PAD, ROI_ZIP_PATH,
+                    SLOW_SPEED, SMALL_PAD, TIF_FOLDER)
+from datatypes import PlotSetting, ROIManager, ROIName, TrialMetadata
 
 
 def run_gui() -> None:
@@ -121,7 +120,9 @@ def run_gui() -> None:
     hide_rois_button = ttk.Checkbutton(button2_frame,
                                        text='Hide ROIs?',
                                        variable=hide_rois_var)
-    hide_rois_button.pack(side='left')
+    hide_rois_button.pack(side='left', padx=(0, SMALL_PAD))
+    save_tif_button = ttk.Button(button2_frame, text='Save as TIF')
+    save_tif_button.pack(side='left')
 
     button3_frame = ttk.Frame(ci_frame)
     button3_frame.pack()
@@ -207,11 +208,10 @@ def run_gui() -> None:
         metadata = h5_data[_tif_file_i]
         stop_image_job()
 
-    def get_median_tiff_arr() -> NDArray[np.int16]:
+    def get_median_tiff_arr() -> NDArray[np.float64]:
         nonlocal _median_tiff_arr
         if _median_tiff_arr is None:
-            _median_tiff_arr = np.median(
-                tiff_arr[BASELINE_AVG_START:BASELINE_AVG_END], axis=0)
+            _median_tiff_arr = calcium_image.calc_median_tiff_arr(tiff_arr)
         return _median_tiff_arr
 
     def set_rois_focused(r: list[ROIName]) -> None:
@@ -313,6 +313,10 @@ def run_gui() -> None:
         except ValueError:
             pass
 
+    def on_save_tif_button() -> None:
+        calcium_image.export_tif(tif_files, h5_data, spatial_blur_var.get(),
+                                 plot_delta_var.get())
+
     def on_roi_click(roi_name: ROIName | None, shift_pressed: bool) -> None:
         stop_image_job()
         if shift_pressed:
@@ -367,6 +371,7 @@ def run_gui() -> None:
         command=lambda: cue_update_job(update_figure=False))
     hide_rois_button.configure(
         command=lambda: cue_update_job(update_figure=False))
+    save_tif_button.configure(command=on_save_tif_button)
     spatial_blur_slider.configure(
         command=lambda _: cue_update_job(update_figure=False))
     temporal_blur_slider.configure(
