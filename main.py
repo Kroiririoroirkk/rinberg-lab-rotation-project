@@ -6,9 +6,8 @@ forced choice task responses) and physiological data (respiration patterns).
 
 Author: Eric Tao (Eric.Tao@nyulangone.org)
 Date created: 2025-09-23
-Date last updated: 2025-09-30
+Date last updated: 2025-10-08
 """
-
 import pickle
 import tkinter as tk
 from tkinter import ttk
@@ -17,7 +16,6 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg,
                                                NavigationToolbar2Tk)
 from matplotlib.figure import Figure
-from numpy.typing import NDArray
 from PIL import Image, ImageTk
 
 import calcium_image
@@ -26,40 +24,18 @@ from config import (DEFAULT_SPATIAL_BLUR, DEFAULT_TEMPORAL_BLUR,
                     DEFAULT_WINDOW_SIZE, H5_PATH, H5_PICKLE_PATH, HEADING_FONT,
                     JOB_SCHEDULE_DELAY, LARGE_PAD, MEDIUM_PAD, ROI_ZIP_PATH,
                     SLOW_SPEED, SMALL_PAD, TIF_FOLDER)
-from datatypes import PlotSetting, ROIManager, ROIName, TrialMetadata
+from datatypes import (PlotSetting, ROIManager, ROIName, TrialMetadata,
+                       VariableSet)
+from gui_state import GUIState
 
 
 def run_gui() -> None:
-    print('Loading H5 file...')
-    try:
-        with H5_PICKLE_PATH.open('rb') as f:
-            h5_data = pickle.load(f)
-    except FileNotFoundError:
-        h5_data = TrialMetadata.list_from_h5(H5_PATH)
-        with H5_PICKLE_PATH.open('wb') as f:
-            pickle.dump(h5_data, f)
-    print('H5 file loaded. Preparing GUI...')
-
-    tif_files = sorted([f for f in TIF_FOLDER.iterdir() if f.suffix == '.tif'])
-    _tif_file_i = 0
-    tif_path = tif_files[_tif_file_i]
-    tiff_arr = calcium_image.load_image(tif_path)
-    _median_tiff_arr = None
-    metadata = h5_data[_tif_file_i]
-    tk_image_job = None
-    _update_figure = False
-    _update_job = None
-    rois = ROIManager.from_zip(ROI_ZIP_PATH)
-    rois_focused = []
-    plot_setting = PlotSetting.NONE
-    image = None  # prevent garbage collection of image
-    _window_width = 0
-    _window_height = 0
-
     root = tk.Tk()
     root.title('Calcium imaging analyzer')
     root.configure(background='light grey')
     root.geometry(DEFAULT_WINDOW_SIZE)
+    root_update_job = None
+    root_updating_figure = False
 
     style = ttk.Style()
     style.configure('TFrame', background='light blue')
@@ -84,6 +60,8 @@ def run_gui() -> None:
     right_button.pack(side='right', padx=SMALL_PAD)
     tk_image = tk.Canvas(ci_frame)
     tk_image.pack(pady=SMALL_PAD)
+    tk_image_job = None
+    tk_image_image = None
 
     button_frame = ttk.Frame(ci_frame)
     button_frame.pack(pady=(0, SMALL_PAD))
@@ -162,126 +140,97 @@ def run_gui() -> None:
     toolbar.pack(pady=(0, MEDIUM_PAD), fill='x')
     plot_button_frame = ttk.Frame(display_frame)
     plot_button_frame.pack()
-    plot_var = tk.StringVar(display_frame, plot_setting.value)
+    plot_setting_var = tk.StringVar(value=PlotSetting.NONE.value)
     plot_buttons = []
     for i, s in enumerate(PlotSetting):
         button = ttk.Radiobutton(plot_button_frame,
                                  text=s.value,
-                                 variable=plot_var,
+                                 variable=plot_setting_var,
                                  value=s.value)
         button.pack(padx=int(SMALL_PAD / 2), side='left')
         plot_buttons.append(button)
 
-    def set_image_job(job: str) -> None:
-        nonlocal tk_image_job
-        tk_image_job = job
-
-    def stop_image_job() -> None:
-        nonlocal tk_image_job
-        if tk_image_job:
-            tk_image.after_cancel(tk_image_job)
-            tk_image_job = None
-        plots.delete_running_lines()
-
-    def cue_update_job(update_figure: bool = True) -> None:
-        nonlocal _update_figure, _update_job
-
-        def _update():
-            nonlocal _update_figure, _update_job
-            update(redraw_figure=_update_figure)
-            _update_job = None
-            _update_figure = False
-
-        if _update_job:
-            root.after_cancel(_update_job)
-        _update_figure = _update_figure or update_figure
-        _update_job = root.after(JOB_SCHEDULE_DELAY, _update)
-
-    def get_tif_file_i() -> int:
-        return _tif_file_i
-
-    def set_tif_file_i(i: int) -> None:
-        nonlocal _tif_file_i, tif_path, tiff_arr, metadata
-        _tif_file_i = i % len(tif_files)
-        tif_path = tif_files[_tif_file_i]
-        tiff_arr = calcium_image.load_image(tif_path)
-        metadata = h5_data[_tif_file_i]
-        stop_image_job()
-
-    def get_median_tiff_arr() -> NDArray[np.float64]:
-        nonlocal _median_tiff_arr
-        if _median_tiff_arr is None:
-            _median_tiff_arr = calcium_image.calc_median_tiff_arr(tiff_arr)
-        return _median_tiff_arr
-
-    def set_rois_focused(r: list[ROIName]) -> None:
-        nonlocal rois_focused
-        rois_focused = r
-
-    def set_plot_setting(s: PlotSetting) -> None:
-        nonlocal plot_setting
-        plot_setting = s
+    print('Loading H5 file...')
+    try:
+        with H5_PICKLE_PATH.open('rb') as f:
+            h5_data = pickle.load(f)
+    except FileNotFoundError:
+        h5_data = TrialMetadata.list_from_h5(H5_PATH)
+        with H5_PICKLE_PATH.open('wb') as f:
+            pickle.dump(h5_data, f)
+    tif_files = sorted([f for f in TIF_FOLDER.iterdir() if f.suffix == '.tif'])
+    variable_set = VariableSet(hide_rois_var=hide_rois_var,
+                               plot_delta_var=plot_delta_var,
+                               spatial_blur_var=spatial_blur_var,
+                               temporal_blur_var=temporal_blur_var,
+                               plot_setting_var=plot_setting_var)
+    gui_state = GUIState(tif_files, h5_data, ROI_ZIP_PATH, variable_set)
 
     def set_ci_image(img: Image) -> None:
-        nonlocal image
+        nonlocal tk_image_image
         size = (tk_image.winfo_reqwidth(), tk_image.winfo_reqheight())
         img_r = img.resize(size)
-        image = ImageTk.PhotoImage(img_r)
+        tk_image_image = ImageTk.PhotoImage(img_r)
         tk_image.delete('IMG')
-        tk_image.create_image(0, 0, image=image, anchor='nw', tags='IMG')
-
-    def was_window_resized(width: int, height: int) -> bool:
-        return _window_width != width or _window_height != height
-
-    def set_window_size(width: int, height: int) -> None:
-        nonlocal _window_width, _window_height
-        _window_width = width
-        _window_height = height
+        tk_image.create_image(0,
+                              0,
+                              image=tk_image_image,
+                              anchor='nw',
+                              tags='IMG')
 
     def update(redraw_image: bool = True,
                redraw_figure: bool = True,
                frame: int | None = None) -> None:
+        message = gui_state.make_message()
         if redraw_image:
-            ci_label.configure(
-                text=calcium_image.make_caption(tif_path, metadata))
-            hide_rois = hide_rois_var.get()
-            spatial_blur = spatial_blur_var.get()
-            temporal_blur = temporal_blur_var.get()
-            median_tiff_arr = get_median_tiff_arr() if plot_delta_var.get(
-            ) else None
-            if frame is None:
-                set_ci_image(
-                    calcium_image.render_thumbnail(tiff_arr, metadata, rois,
-                                                   rois_focused, hide_rois,
-                                                   spatial_blur,
-                                                   median_tiff_arr))
-            else:
-                set_ci_image(
-                    calcium_image.render_frame(tiff_arr, rois, rois_focused,
-                                               hide_rois, frame, spatial_blur,
-                                               temporal_blur, median_tiff_arr))
+            ci_label.configure(text=calcium_image.make_caption(message))
+            set_ci_image(calcium_image.render_ci(message, frame))
         if redraw_figure:
-            plots.render_plot(fig, plot_setting, metadata, tiff_arr, rois,
-                              rois_focused, frame)
+            plots.render_plot(fig, message, frame)
             canvas.draw()
             toolbar.update()
 
+    def set_image_job(job: str | None) -> None:
+        nonlocal tk_image_job
+        tk_image_job = job
+
+    def stop_image_job() -> None:
+        if tk_image_job is not None:
+            tk_image.after_cancel(tk_image_job)
+            set_image_job(None)
+        plots.delete_running_lines()
+
+    def cue_update_job(update_figure: bool = True) -> None:
+        nonlocal root_update_job, root_updating_figure
+
+        def _update():
+            nonlocal root_update_job, root_updating_figure
+            update(redraw_figure=update_figure)
+            root_update_job = None
+            root_updating_figure = False
+
+        if root_update_job is not None:
+            root.after_cancel(root_update_job)
+        root_updating_figure = root_updating_figure or update_figure
+        root_update_job = root.after(JOB_SCHEDULE_DELAY, _update)
+
     def on_left_button() -> None:
-        set_tif_file_i(get_tif_file_i() - 1)
+        gui_state.set_tif_file_i(gui_state.get_tif_file_i() - 1)
+        stop_image_job()
         update()
 
     def on_right_button() -> None:
-        set_tif_file_i(get_tif_file_i() + 1)
+        gui_state.set_tif_file_i(gui_state.get_tif_file_i() + 1)
+        stop_image_job()
         update()
 
     def on_play_button(speed: float) -> None:
 
         def render(i: int) -> None:
-            if i + 1 < tiff_arr.shape[0]:
+            if i + 1 < gui_state.get_tiff_arr().shape[0]:
                 update(frame=i)
-                dt = int(
-                    (metadata.frame_times[i + 1] - metadata.frame_times[i]) /
-                    speed)
+                dt = int((gui_state.get_metadata().frame_times[i + 1] -
+                          gui_state.get_metadata().frame_times[i]) / speed)
                 set_image_job(
                     tk_image.after(dt if dt > 0 else 0, lambda: render(i + 1)))
             else:
@@ -291,7 +240,8 @@ def run_gui() -> None:
         stop_image_job()
 
         if start_from_odor_var.get():
-            i = np.argmax(metadata.frame_times > metadata.odor_time)
+            i = np.argmax(gui_state.get_metadata().frame_times >
+                          gui_state.get_metadata().odor_time)
             render(i - 5 if i > 5 else 0)
         else:
             render(0)
@@ -302,56 +252,52 @@ def run_gui() -> None:
 
     def on_select_all_button() -> None:
         stop_image_job()
-        set_rois_focused(list(rois.keys()))
+        gui_state.set_rois_focused(list(gui_state.get_all_rois().keys()))
         update()
 
     def on_jump_to_button() -> None:
         try:
             i = jump_to_var.get()
-            set_tif_file_i(int(i) - 1)
+            gui_state.set_tif_file_i(int(i) - 1)
+            stop_image_job()
             update()
         except ValueError:
             pass
 
     def on_save_tif_button() -> None:
-        calcium_image.export_tif(tif_files, h5_data, spatial_blur_var.get(),
-                                 plot_delta_var.get())
+        calcium_image.export_tif(tif_files, h5_data, gui_state.make_message())
 
     def on_roi_click(roi_name: ROIName | None, shift_pressed: bool) -> None:
         stop_image_job()
         if shift_pressed:
             if roi_name:
-                if roi_name in rois_focused:
-                    rois_focused.remove(roi_name)
-                else:
-                    rois_focused.append(roi_name)
+                gui_state.toggle_roi(roi_name)
         else:
             if roi_name:
-                set_rois_focused([roi_name])
+                gui_state.set_rois_focused([roi_name])
             else:
-                set_rois_focused([])
+                gui_state.set_rois_focused([])
         update()
 
     def on_image_click(event: tk.Event) -> None:
         shift_pressed = (event.state == 1)
         roi_name = None
         x, y = event.x, event.y
-        for roi_n, roi in rois.items():
+        for roi_n, roi in gui_state.get_all_rois().items():
             if ROIManager.is_in_roi(x, y, roi):
                 roi_name = roi_n
         on_roi_click(roi_name, shift_pressed)
 
     def on_plot_setting_button() -> None:
         stop_image_job()
-        set_plot_setting(PlotSetting(plot_var.get()))
         update()
 
     def on_resize_window(event: tk.Event) -> None:
         if event.widget == root:
             new_width = event.width
             new_height = event.height
-            if was_window_resized(new_width, new_height):
-                set_window_size(new_width, new_height)
+            if gui_state.was_window_resized(new_width, new_height):
+                gui_state.set_window_size(new_width, new_height)
                 ci_image_size = int(0.6 * min(new_width, new_height))
                 tk_image.configure(width=ci_image_size, height=ci_image_size)
                 plot_height = int(0.6 * new_height)

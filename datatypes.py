@@ -1,12 +1,13 @@
+import tkinter as tk
+from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Self, NewType
+from typing import NewType, Self
 
-from collections import OrderedDict
-import read_roi
 import h5py
 import numpy as np
+import read_roi
 from numpy.typing import NDArray
 
 
@@ -166,3 +167,27 @@ class PlotSetting(Enum):
     NONE: Self = 'None'
     BEHAVIOR: Self = 'Behavior'
     FLUORESCENCE: Self = 'Fluorescence'
+
+
+@dataclass(frozen=True)
+class VariableSet:
+    hide_rois_var: tk.BooleanVar
+    plot_delta_var: tk.BooleanVar
+    spatial_blur_var: tk.DoubleVar
+    temporal_blur_var: tk.IntVar
+    plot_setting_var: tk.StringVar
+
+
+@dataclass(frozen=True)
+class GUIStateMessage:
+    tif_path: Path
+    tiff_arr: NDArray[np.uint8]
+    metadata: TrialMetadata
+    rois: ROIManager
+    rois_focused: list[ROIName]
+    hide_rois: bool
+    plot_delta: bool
+    median_tiff_arr: NDArray[np.float64] | None
+    spatial_blur: float
+    temporal_blur: int
+    plot_setting: PlotSetting

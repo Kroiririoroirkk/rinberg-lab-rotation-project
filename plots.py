@@ -1,19 +1,20 @@
-from matplotlib.figure import Figure
-from datatypes import TrialMetadata, ROIManager, ROIName, PlotSetting
 import numpy as np
-from numpy.typing import NDArray
-from config import BASELINE_AVG_START, BASELINE_AVG_END
+from matplotlib.figure import Figure
+
+from config import BASELINE_AVG_END, BASELINE_AVG_START
+from datatypes import GUIStateMessage, PlotSetting, ROIManager
 
 
-def render_none_plot(fig: Figure):
+def render_none_plot(fig: Figure, message: GUIStateMessage, frame: int | None):
     fig.clf()
 
 
 cache_line_behavioral_plot = None
 
 
-def render_behavioral_plot(fig: Figure, metadata: TrialMetadata,
+def render_behavioral_plot(fig: Figure, message: GUIStateMessage,
                            frame: int | None) -> None:
+    metadata = message.metadata
     if frame is None:
         fig.clf()
         ax = fig.add_subplot()
@@ -54,19 +55,19 @@ def render_behavioral_plot(fig: Figure, metadata: TrialMetadata,
 cache_line_fluorescence_plot = None
 
 
-def render_fluorescence_plot(fig: Figure, metadata: TrialMetadata,
-                             tiff_arr: NDArray[np.int16], rois: ROIManager,
-                             rois_focused: list[ROIName],
+def render_fluorescence_plot(fig: Figure, message: GUIStateMessage,
                              frame: int | None) -> None:
+    metadata = message.metadata
     if frame is None:
         fig.clf()
-        if rois_focused:
-            ys, xs = np.indices(tiff_arr.shape[1:])
+        if message.rois_focused:
+            ys, xs = np.indices(message.tiff_arr.shape[1:])
             ax = fig.add_subplot()
             offset = metadata.frame_times[0]
-            for i, roi_name in enumerate(rois_focused):
-                indices_in_roi = ROIManager.is_in_roi(xs, ys, rois[roi_name])
-                f_vals = np.mean(tiff_arr[:, indices_in_roi], axis=1)
+            for i, roi_name in enumerate(message.rois_focused):
+                indices_in_roi = ROIManager.is_in_roi(xs, ys,
+                                                      message.rois[roi_name])
+                f_vals = np.mean(message.tiff_arr[:, indices_in_roi], axis=1)
                 median_f_val = np.median(
                     f_vals[BASELINE_AVG_START:BASELINE_AVG_END])
                 df_vals = (f_vals - median_f_val) / median_f_val
@@ -98,17 +99,15 @@ def render_fluorescence_plot(fig: Figure, metadata: TrialMetadata,
                 metadata.frame_times[frame] - offset, color='red')
 
 
-def render_plot(fig: Figure, plot_setting: PlotSetting,
-                metadata: TrialMetadata, tif_arr: NDArray[np.int16],
-                rois: ROIManager, rois_focused: list[ROIName],
+def render_plot(fig: Figure, message: GUIStateMessage,
                 frame: int | None) -> None:
-    if plot_setting == PlotSetting.NONE:
-        render_none_plot(fig)
-    if plot_setting == PlotSetting.BEHAVIOR:
-        render_behavioral_plot(fig, metadata, frame)
-    elif plot_setting == PlotSetting.FLUORESCENCE:
-        render_fluorescence_plot(fig, metadata, tif_arr, rois, rois_focused,
-                                 frame)
+    s = message.plot_setting
+    if s == PlotSetting.NONE:
+        render_none_plot(fig, message, frame)
+    if s == PlotSetting.BEHAVIOR:
+        render_behavioral_plot(fig, message, frame)
+    elif s == PlotSetting.FLUORESCENCE:
+        render_fluorescence_plot(fig, message, frame)
 
 
 def delete_running_lines() -> None:
