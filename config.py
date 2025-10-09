@@ -7,11 +7,11 @@ import matplotlib
 # File paths
 ROI_ZIP_PATH: Final[Path] = Path(
     'data/sebolddata/GLOM/ROIs/RoiSet_ET_2025-10-02.zip')
-TIF_FOLDER: Final[Path] = Path('data/sebolddata/GLOM/TIFFs')
+TIFF_FOLDER: Final[Path] = Path('data/sebolddata/GLOM/TIFFs')
 H5_PATH: Final[Path] = Path(
     'data/sebolddata/GLOM/mouse0953_sess20_D2025_8_18T12_36_43.h5')
 H5_PICKLE_PATH: Final[Path] = Path('metadata.pkl')
-TIF_EXPORT_PATH: Final[Path] = Path('export.tif')
+TIFF_EXPORT_PATH: Final[Path] = Path('export.tif')
 
 # Calcium imaging playback settings
 NUM_FRAMES_BUYIN: Final[int] = 5

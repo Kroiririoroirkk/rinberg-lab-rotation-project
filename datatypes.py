@@ -180,7 +180,7 @@ class VariableSet:
 
 @dataclass(frozen=True)
 class GUIStateMessage:
-    tif_path: Path
+    tiff_path: Path
     tiff_arr: NDArray[np.uint8]
     metadata: TrialMetadata
     rois: ROIManager
