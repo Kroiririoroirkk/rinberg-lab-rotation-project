@@ -191,3 +191,8 @@ class GUIStateMessage:
     spatial_blur: float
     temporal_blur: int
     plot_setting: PlotSetting
+
+
+class PageSetting(Enum):
+    BY_TRIAL: str = 'By trial'
+    BY_STIM_TYPE: str = 'By stim type'

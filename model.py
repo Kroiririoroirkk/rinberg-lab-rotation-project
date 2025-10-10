@@ -9,20 +9,18 @@ from PIL import Image
 
 from ci_handler import CIHandler
 from config import DEFAULT_SPATIAL_BLUR, DEFAULT_TEMPORAL_BLUR
-from datatypes import GUIStateMessage, PlotSetting, ROIManager, TrialMetadata
+from datatypes import (GUIStateMessage, PageSetting, PlotSetting, ROIManager,
+                       TrialMetadata)
 from plot_handler import PlotHandler
 
 
-class Model:
+class ByTrialModel:
 
-    def __init__(self: Self, tiff_folder_path: Path, h5_path: Path,
-                 h5_pickle_path: Path, roi_zip_path: Path) -> None:
-        self.tiff_files = self.load_tiff_file_paths(tiff_folder_path)
+    def __init__(self: Self, parent: 'Model') -> None:
+        self.parent = parent
         self._tiff_file_i = 0
         self._median_tiff_arr = None
         self._tiff_arr = None
-        self.h5_data = self.load_h5(h5_path, h5_pickle_path)
-        self.rois = ROIManager.from_zip(roi_zip_path)
         self.rois_focused = []
         self.start_from_odor = True
         self.hide_rois = False
@@ -33,21 +31,17 @@ class Model:
         self.ci_handler = CIHandler()
         self.plot_handler = PlotHandler()
 
-    def load_tiff_file_paths(self: Self, tiff_folder_path: Path) -> list[Path]:
-        return sorted(
-            [f for f in tiff_folder_path.iterdir() if f.suffix == '.tif'])
+    @property
+    def tiff_files(self: Self) -> list[Path]:
+        return self.parent.tiff_files
 
-    def load_h5(self: Self, h5_path: Path,
-                h5_pickle_path: Path) -> list[TrialMetadata]:
-        print('Loading H5 file...')
-        try:
-            with h5_pickle_path.open('rb') as f:
-                h5_data = pickle.load(f)
-        except FileNotFoundError:
-            h5_data = TrialMetadata.list_from_h5(h5_path)
-            with h5_pickle_path.open('wb') as f:
-                pickle.dump(h5_data, f)
-        return h5_data
+    @property
+    def h5_data(self: Self) -> list[TrialMetadata]:
+        return self.parent.h5_data
+
+    @property
+    def rois(self: Self) -> ROIManager:
+        return self.parent.rois
 
     @property
     def tiff_file_i(self: Self) -> int:
@@ -115,3 +109,46 @@ class Model:
     def update_plot(self: Self, fig: Figure, i: int | None) -> None:
         message = self.make_message()
         self.plot_handler.render_plot(fig, message, i)
+
+
+class ByStimTypeModel:
+
+    def __init__(self: Self, parent: 'Model') -> None:
+        self.parent = parent
+
+
+PAGE_SETTING_MODEL_DICT = {
+    PageSetting.BY_TRIAL: ByTrialModel,
+    PageSetting.BY_STIM_TYPE: ByStimTypeModel
+}
+
+
+class Model:
+
+    def __init__(self: Self, tiff_folder_path: Path, h5_path: Path,
+                 h5_pickle_path: Path, roi_zip_path: Path):
+        self.tiff_files = self.load_tiff_file_paths(tiff_folder_path)
+        self.h5_data = self.load_h5(h5_path, h5_pickle_path)
+        self.rois = ROIManager.from_zip(roi_zip_path)
+        self.children = dict()
+        self.create_children()
+
+    def load_tiff_file_paths(self: Self, tiff_folder_path: Path) -> list[Path]:
+        return sorted(
+            [f for f in tiff_folder_path.iterdir() if f.suffix == '.tif'])
+
+    def load_h5(self: Self, h5_path: Path,
+                h5_pickle_path: Path) -> list[TrialMetadata]:
+        print('Loading H5 file...')
+        try:
+            with h5_pickle_path.open('rb') as f:
+                h5_data = pickle.load(f)
+        except FileNotFoundError:
+            h5_data = TrialMetadata.list_from_h5(h5_path)
+            with h5_pickle_path.open('wb') as f:
+                pickle.dump(h5_data, f)
+        return h5_data
+
+    def create_children(self: Self) -> None:
+        for s in PageSetting:
+            self.children[s] = PAGE_SETTING_MODEL_DICT[s](self)

@@ -16,6 +16,12 @@ class PlotHandler:
     def render_none_plot(self: Self, fig: Figure, message: GUIStateMessage,
                          frame: int | None) -> None:
         fig.clf()
+        fig.text(0.5,
+                 0.5,
+                 'Select a plot setting...',
+                 fontsize=30,
+                 horizontalalignment='center',
+                 verticalalignment='center')
 
     def render_behavioral_plot(self: Self, fig: Figure,
                                message: GUIStateMessage,

@@ -2,18 +2,19 @@ from typing import Self
 
 import numpy as np
 
-from datatypes import PlotSetting, ROIManager, ROIName
+from datatypes import PageSetting, PlotSetting, ROIManager, ROIName
+from model import ByStimTypeModel, ByTrialModel, Model
+from view import ByStimTypeView, ByTrialView, View
 
-from model import Model
-from view import View
 
+class ByTrialController:
 
-class Controller:
-
-    def __init__(self: Self, model: Model, view: View):
+    def __init__(self: Self, model: ByTrialModel, view: ByTrialView,
+                 parent: 'Controller'):
         self.model = model
         self.view = view
-        self.view.set_controller(self)
+        self.view.controller = self
+        self.parent = parent
         self.initialize_view()
 
     def update(self: Self,
@@ -22,21 +23,16 @@ class Controller:
                frame: int | None = None) -> None:
         self.update_model_vars()
         if redraw_image:
-            caption, image = self.model.update_ci(frame)
-            self.view.ci_label.configure(text=caption)
-            self.view.set_ci_image(image)
+            self.view.set_ci_image(*self.model.update_ci(frame))
         if redraw_figure:
             self.model.update_plot(self.view.fig, frame)
-            self.view.canvas.draw()
-            self.view.toolbar.update()
+            self.view.update_fig()
 
     def decrement_tiff_file(self: Self) -> None:
         self.model.tiff_file_i = self.model.tiff_file_i - 1
-        self.view.stop_image_job()
 
     def increment_tiff_file(self: Self) -> None:
         self.model.tiff_file_i = self.model.tiff_file_i + 1
-        self.view.stop_image_job()
 
     def play_ci_video(self: Self, speed: float) -> None:
 
@@ -69,8 +65,9 @@ class Controller:
     def save_tiff(self: Self) -> None:
         self.model.export_tiff()
 
-    def process_image_click(self: Self, shift_pressed: bool, x: int,
-                            y: int) -> None:
+    def process_image_click(self: Self, shift_pressed: bool, x: float,
+                            y: float) -> None:
+        print(x, y)
         roi_name = None
         for roi_n, roi in self.model.rois.items():
             if ROIManager.is_in_roi(x, y, roi):
@@ -107,3 +104,34 @@ class Controller:
         self.model.spatial_blur = self.view.spatial_blur_var.get()
         self.model.temporal_blur = self.view.temporal_blur_var.get()
         self.model.plot_setting = PlotSetting(self.view.plot_setting_var.get())
+
+
+class ByStimTypeController:
+
+    def __init__(self: Self, model: ByStimTypeModel, view: ByStimTypeView,
+                 parent: 'Controller'):
+        self.model = model
+        self.view = view
+        self.view.controller = self
+        self.parent = parent
+        # self.initialize_view()
+
+
+PAGE_SETTING_CONTROLLER_DICT = {
+    PageSetting.BY_TRIAL: ByTrialController,
+    PageSetting.BY_STIM_TYPE: ByStimTypeController
+}
+
+
+class Controller:
+
+    def __init__(self: Self, model: Model, view: View):
+        self.model = model
+        self.view = view
+        self.children = dict()
+        self.create_children()
+
+    def create_children(self: Self) -> None:
+        for s in PageSetting:
+            self.children[s] = PAGE_SETTING_CONTROLLER_DICT[s](
+                self.model.children[s], self.view.children[s], self)

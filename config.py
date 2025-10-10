@@ -31,7 +31,6 @@ DEFAULT_WINDOW_HEIGHT: Final[int] = 850
 DEFAULT_WINDOW_SIZE: Final[
     str] = f'{DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT}'
 SMALL_PAD: Final[int] = 10
-MEDIUM_PAD: Final[int] = 20
 LARGE_PAD: Final[int] = 30
 HEADING_FONT: Final[Font] = ('', 18)
 

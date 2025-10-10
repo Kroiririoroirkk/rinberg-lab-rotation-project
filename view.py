@@ -1,45 +1,28 @@
-from __future__ import annotations
-
 import tkinter as tk
 import tkinter.ttk as ttk
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Self
 
 from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg,
                                                NavigationToolbar2Tk)
 from matplotlib.figure import Figure
 from PIL import Image, ImageTk
 
-if TYPE_CHECKING:
-    from controller import Controller
-
 from config import (DEFAULT_WINDOW_SIZE, HEADING_FONT, JOB_SCHEDULE_DELAY,
-                    LARGE_PAD, MEDIUM_PAD, SLOW_SPEED, SMALL_PAD)
-from datatypes import PlotSetting
+                    LARGE_PAD, SLOW_SPEED, SMALL_PAD)
+from datatypes import PageSetting, PlotSetting
 
 
-class View(tk.Tk):
+class ByTrialView(ttk.Frame):
 
-    def __init__(self: Self) -> None:
-        super().__init__()
-
-        self.window_width = None
-        self.window_height = None
+    def __init__(self: Self, parent: 'View', **kwargs) -> None:
+        super().__init__(parent.container, **kwargs)
+        self.parent = parent
+        self.controller = None
         self.root_update_job = None
         self.root_updating_figure = False
-        self.controller = None
-
         self.create_widgets()
 
     def create_widgets(self: Self) -> None:
-        self.style = ttk.Style()
-        self.style.configure('TFrame', background='light blue')
-        self.style.configure('Invisible.TFrame', background='light grey')
-        self.style.configure('TLabel', background='light blue')
-
-        self.title('Calcium imaging analyzer')
-        self.configure(background='light grey')
-        self.geometry(DEFAULT_WINDOW_SIZE)
-        self.bind('<Configure>', self.on_resize_window)
 
         self.main_frame = ttk.Frame(self, style='Invisible.TFrame')
         self.main_frame.pack(padx=LARGE_PAD,
@@ -151,12 +134,13 @@ class View(tk.Tk):
 
         self.side_frame = ttk.Frame(self, style='Invisible.TFrame')
         self.side_frame.pack(padx=(0, LARGE_PAD),
+                             pady=(LARGE_PAD, LARGE_PAD),
                              side='right',
                              fill='y',
                              expand=True)
 
         self.display_frame = ttk.Frame(self.side_frame)
-        self.display_frame.pack(pady=LARGE_PAD, fill='both', expand=True)
+        self.display_frame.pack(fill='x')
         self.display_heading = ttk.Label(self.display_frame,
                                          text='Analysis',
                                          font=HEADING_FONT)
@@ -167,9 +151,9 @@ class View(tk.Tk):
         self.toolbar = NavigationToolbar2Tk(self.canvas,
                                             self.display_frame,
                                             pack_toolbar=False)
-        self.toolbar.pack(pady=(0, MEDIUM_PAD), fill='x')
+        self.toolbar.pack(pady=(0, SMALL_PAD), fill='x')
         self.plot_button_frame = ttk.Frame(self.display_frame)
-        self.plot_button_frame.pack()
+        self.plot_button_frame.pack(pady=SMALL_PAD)
         self.plot_setting_var = tk.StringVar()
         self.plot_buttons = []
         for i, s in enumerate(PlotSetting):
@@ -181,20 +165,49 @@ class View(tk.Tk):
             button.configure(command=self.on_plot_setting_button)
             self.plot_buttons.append(button)
 
-    def set_controller(self: Self, controller: Controller) -> None:
-        self.controller = controller
+        self.page_switcher_frame = ttk.Frame(self.side_frame)
+        self.page_switcher_frame.pack(side='bottom', fill='x')
+        self.page_switcher_label = ttk.Label(self.page_switcher_frame,
+                                             text='View',
+                                             font=HEADING_FONT)
+        self.page_switcher_label.pack()
+        self.page_button_frame = ttk.Frame(self.page_switcher_frame)
+        self.page_button_frame.pack(pady=SMALL_PAD)
+        self.page_buttons = []
+        for i, s in enumerate(PageSetting):
+            button = ttk.Radiobutton(self.page_button_frame,
+                                     text=s.value,
+                                     variable=self.parent.page_setting_var,
+                                     value=s.value)
+            button.pack(padx=int(SMALL_PAD / 2), side='left')
+            button.configure(command=self.on_page_setting_button)
+            self.page_buttons.append(button)
 
-    def set_ci_image(self: Self, img: Image.Image) -> None:
-        size = (self.tk_image.winfo_reqwidth(),
-                self.tk_image.winfo_reqheight())
-        img_r = img.resize(size)
-        self.tk_image_image = ImageTk.PhotoImage(img_r)
+    @property
+    def original_image_size(self: Self) -> tuple[int, int]:
+        return self.image_original.size
+
+    @property
+    def displayed_image_size(self: Self) -> tuple[int, int]:
+        return self.image_resized.size
+
+    def set_ci_image(self: Self, caption: str, img: Image.Image) -> None:
+        self.ci_label.configure(text=caption)
+        self.image_original = img
+        new_size = (self.tk_image.winfo_reqwidth(),
+                    self.tk_image.winfo_reqheight())
+        self.image_resized = img.resize(new_size)
+        self.tk_image_image = ImageTk.PhotoImage(self.image_resized)
         self.tk_image.delete('IMG')
         self.tk_image.create_image(0,
                                    0,
                                    image=self.tk_image_image,
                                    anchor='nw',
                                    tags='IMG')
+
+    def update_fig(self: Self) -> None:
+        self.canvas.draw()
+        self.toolbar.update()
 
     def stop_image_job(self: Self) -> None:
         if self.tk_image_job is not None:
@@ -223,10 +236,12 @@ class View(tk.Tk):
 
     def on_left_button(self: Self) -> None:
         self.controller.decrement_tiff_file()
+        self.stop_image_job()
         self.controller.update()
 
     def on_right_button(self: Self) -> None:
         self.controller.increment_tiff_file()
+        self.stop_image_job()
         self.controller.update()
 
     def on_play_button(self: Self, speed: float) -> None:
@@ -259,7 +274,9 @@ class View(tk.Tk):
 
     def on_image_click(self: Self, event: tk.Event) -> None:
         shift_pressed = (event.state == 1)
-        x, y = event.x, event.y
+        orig_w, orig_h = self.original_image_size
+        display_w, display_h = self.displayed_image_size
+        x, y = (event.x / display_w) * orig_w, (event.y / display_h) * orig_h
         self.controller.process_image_click(shift_pressed, x, y)
         self.controller.update()
 
@@ -267,12 +284,17 @@ class View(tk.Tk):
         self.stop_image_job()
         self.controller.update()
 
+    def on_page_setting_button(self: Self) -> None:
+        self.stop_image_job()
+        self.parent.update_frame()
+        self.controller.update()
+
     def on_resize_window(self: Self, event: tk.Event) -> None:
         if event.widget == self:
             new_width = event.width
             new_height = event.height
-            if (new_width != self.window_width) or (new_height
-                                                    != self.window_height):
+            if (new_width != self.parent.window_width) or (
+                    new_height != self.parent.window_height):
                 self.window_width = new_width
                 self.window_height = new_height
                 ci_image_size = int(0.6 * min(new_width, new_height))
@@ -283,3 +305,64 @@ class View(tk.Tk):
                 self.canvas.get_tk_widget().configure(width=plot_width,
                                                       height=plot_height)
                 self.cue_update_job()
+
+
+class ByStimTypeView(ttk.Frame):
+
+    def __init__(self: Self, parent: 'View', **kwargs) -> None:
+        super().__init__(parent.container, **kwargs)
+
+
+PAGE_SETTING_VIEW_DICT = {
+    PageSetting.BY_TRIAL: ByTrialView,
+    PageSetting.BY_STIM_TYPE: ByStimTypeView
+}
+
+
+class View(tk.Tk):
+
+    def __init__(self: Self) -> None:
+        super().__init__()
+
+        self.window_width = None
+        self.window_height = None
+        self.controller = None
+
+        self.title('Calcium imaging analyzer')
+        self.configure(background='light grey')
+        self.geometry(DEFAULT_WINDOW_SIZE)
+        self.bind('<Configure>', self.on_resize_window)
+
+        self.style = ttk.Style()
+        self.style.configure('TFrame', background='light blue')
+        self.style.configure('Invisible.TFrame', background='light grey')
+        self.style.configure('TLabel', background='light blue')
+
+        self.page_setting_var = tk.StringVar(value=PageSetting.BY_TRIAL.value)
+        self.children = dict()
+        self.create_children()
+
+    def create_children(self: Self) -> None:
+        self.container = ttk.Frame(self, style='Invisible.TFrame')
+        self.container.pack(fill='both', expand=True)
+        self.container.grid_rowconfigure(0, weight=1)
+        self.container.grid_columnconfigure(0, weight=1)
+        for s in PageSetting:
+            frame = PAGE_SETTING_VIEW_DICT[s](self, style='Invisible.TFrame')
+            self.children[s] = frame
+            frame.grid(row=0, column=0, sticky='nsew')
+        self.update_frame()
+
+    @property
+    def page_setting(self: Self) -> PageSetting:
+        return PageSetting(self.page_setting_var.get())
+
+    @property
+    def current_page(self: Self) -> ttk.Frame:
+        return self.children[self.page_setting]
+
+    def update_frame(self: Self) -> None:
+        self.current_page.tkraise()
+
+    def on_resize_window(self: Self, event: tk.Event) -> None:
+        self.current_page.on_resize_window(event)
