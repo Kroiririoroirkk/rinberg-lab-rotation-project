@@ -54,7 +54,18 @@ def _read_clumped_arr(arr: h5py._hl.dataset.Dataset) -> list[int]:
                      ]) if arr.size else np.array([])
 
 
-@dataclass
+StimID = NewType('StimID', int)
+
+
+@dataclass(frozen=True)
+class StimCondition:
+    odor1: Odor
+    odor2: Odor
+    odor1_flow: float
+    odor2_flow: float
+
+
+@dataclass(frozen=True)
 class TrialMetadata:
     frame_times: NDArray[int]  # in ms
     odor_time: int  # in ms
@@ -62,17 +73,16 @@ class TrialMetadata:
     lick2_times: NDArray[int]  # in ms
     sniff_times: NDArray[int]  # in ms
     sniff_values: NDArray[int]  # in relative units
-    odor1: Odor
-    odor2: Odor
-    odor1_flow: float
-    odor2_flow: float
+    stim_condition: StimCondition
     target: Choice
     response: Choice
     correct: bool
+    stim_id: StimID
 
     @staticmethod
     def list_from_h5(h5_path: Path) -> list[Self]:
         trial_metadata_list = []
+        stim_condition_dict = dict()
         f = h5py.File(h5_path, 'r')
         all_trials_f = f['Trials']
         recorded_trials = np.nonzero(all_trials_f['record'])[0]
@@ -122,6 +132,18 @@ class TrialMetadata:
             if response is None:
                 raise ValueError(f'Response lookup failed on input: {r}.')
             correct = (target == response)
+            stim_id = StimID(int(all_trials_f['stimid'][i]))
+            stim_condition = StimCondition(odor1=odor1,
+                                           odor2=odor2,
+                                           odor1_flow=odor1_flow,
+                                           odor2_flow=odor2_flow)
+            if stim_id in stim_condition_dict:
+                if stim_condition != stim_condition_dict[stim_id]:
+                    raise ValueError(
+                        f'Stim ID {stim_id} has multiple stim condition '
+                        f'values (failed on input: {r}).')
+            else:
+                stim_condition_dict[stim_id] = stim_condition
             trial_metadata_list.append(
                 TrialMetadata(frame_times=frame_times,
                               odor_time=odor_time,
@@ -129,14 +151,12 @@ class TrialMetadata:
                               lick2_times=lick2_times,
                               sniff_times=sniff_times,
                               sniff_values=sniff_values,
-                              odor1=odor1,
-                              odor2=odor2,
-                              odor1_flow=odor1_flow,
-                              odor2_flow=odor2_flow,
+                              stim_condition=stim_condition,
                               target=target,
                               response=response,
-                              correct=correct))
-        return trial_metadata_list
+                              correct=correct,
+                              stim_id=stim_id))
+        return trial_metadata_list, stim_condition_dict
 
 
 ROIName = NewType('ROIName', str)
@@ -163,36 +183,26 @@ ROIManager.from_zip = _from_zip
 ROIManager.is_in_roi = _is_in_roi
 
 
-class PlotSetting(Enum):
+class PageSetting(Enum):
+    BY_TRIAL: str = 'By trial'
+    BY_STIM_ID: str = 'By stim ID'
+
+
+def for_page(d: dict[PageSetting, type], s: PageSetting):
+
+    def decorator(cls: type):
+        d[s] = cls
+        return cls
+
+    return decorator
+
+
+class ByTrialPlotSetting(Enum):
     NONE: Self = 'None'
     BEHAVIOR: Self = 'Behavior'
     FLUORESCENCE: Self = 'Fluorescence'
 
 
-@dataclass(frozen=True)
-class VariableSet:
-    hide_rois_var: tk.BooleanVar
-    plot_delta_var: tk.BooleanVar
-    spatial_blur_var: tk.DoubleVar
-    temporal_blur_var: tk.IntVar
-    plot_setting_var: tk.StringVar
-
-
-@dataclass(frozen=True)
-class GUIStateMessage:
-    tiff_path: Path
-    tiff_arr: NDArray[np.uint8]
-    metadata: TrialMetadata
-    rois: ROIManager
-    rois_focused: list[ROIName]
-    hide_rois: bool
-    plot_delta: bool
-    median_tiff_arr: NDArray[np.float64] | None
-    spatial_blur: float
-    temporal_blur: int
-    plot_setting: PlotSetting
-
-
-class PageSetting(Enum):
-    BY_TRIAL: str = 'By trial'
-    BY_STIM_TYPE: str = 'By stim type'
+class ByStimIDPlotSetting(Enum):
+    NONE: Self = 'None'
+    FLUORESCENCE: Self = 'Fluorescence'
