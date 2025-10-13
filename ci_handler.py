@@ -13,7 +13,7 @@ from config import (BASELINE_AVG_END, BASELINE_AVG_START, CALCIUM_VIDEO_DT,
                     HEAT_CMAP, MAX_DELTA_F, MIN_DELTA_F, NUM_FRAMES_AVG,
                     NUM_FRAMES_BUYIN, PROPORTION_TRIALS_THRESHOLD,
                     TIFF_EXPORT_PATH)
-from datatypes import ROIManager, ROIName, TrialMetadata
+from datatypes import ROIManager, ROIName, StimID
 
 if TYPE_CHECKING:
     from model import ByStimIDModel, ByTrialModel
@@ -136,10 +136,9 @@ class ByTrialCIHandler:
             self: Self, tiff_arr: NDArray[np.int16]) -> NDArray[np.float64]:
         return np.median(tiff_arr[BASELINE_AVG_START:BASELINE_AVG_END], axis=0)
 
-    def export_tiff(self: Self, tiff_files: list[Path],
-                    h5_data: list[TrialMetadata], m: ByTrialModel) -> None:
+    def export_tiff(self: Self, m: ByTrialModel) -> None:
         im_list = []
-        for tiff_path, md in zip(tiff_files, h5_data):
+        for tiff_path, md in zip(m.tiff_files, m.h5_data):
             print(f'Saving {tiff_path}...')
             with tifffile.TiffFile(tiff_path) as tf:
                 tiff_arr = tf.asarray(range(len(tf.pages)))
@@ -153,6 +152,7 @@ class ByTrialCIHandler:
                                         m.rois_focused)
             im_list.append(im)
         im_list[0].save(TIFF_EXPORT_PATH, append_images=im_list[1:])
+        print('Tiff file exported.')
 
 
 class ByStimIDCIHandler:
@@ -160,16 +160,18 @@ class ByStimIDCIHandler:
     def make_caption(self: Self, m: ByStimIDModel) -> str:
         sc = m.stim_condition
         return (f'Average of {NUM_FRAMES_AVG} frames after odor presentation '
-                f'(average of all stim ID {m.stim_id} trials)\nOdors = '
-                f'{sc.odor1_flow} {sc.odor1.value} and '
+                f'(average of all {m.num_trials_stim_id} stim ID {m.stim_id} '
+                f'trials)\nOdors = {sc.odor1_flow} {sc.odor1.value} and '
                 f'{sc.odor2_flow} {sc.odor2.value}')
 
     def load_image(
-            self: Self, m: ByStimIDModel
+        self: Self, m: ByStimIDModel, stim_id: StimID | None
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        if stim_id is None:
+            stim_id = m.stim_id
         indices = [
             i for i in range(len(m.tiff_files))
-            if m.h5_data[i].stim_id == m.stim_id
+            if m.h5_data[i].stim_id == stim_id
         ]
         tiff_arrs = [_load_image(m.tiff_files[i]) for i in indices]
         frame_times_arr = [m.h5_data[i].frame_times for i in indices]
@@ -283,20 +285,18 @@ class ByStimIDCIHandler:
             self: Self, tiff_arr: NDArray[np.float64]) -> NDArray[np.float64]:
         return np.median(tiff_arr[BASELINE_AVG_START:BASELINE_AVG_END], axis=0)
 
-    def export_tiff(self: Self, tiff_files: list[Path],
-                    h5_data: list[TrialMetadata], m: ByStimIDModel) -> None:
+    def export_tiff(self: Self, m: ByStimIDModel) -> None:
         im_list = []
-        for tiff_path, md in zip(tiff_files, h5_data):
-            print(f'Saving {tiff_path}...')
-            with tifffile.TiffFile(tiff_path) as tf:
-                tiff_arr = tf.asarray(range(len(tf.pages)))
+        for i in range(len(m.stim_ids)):
+            print(f'Saving Stim ID {m.stim_ids[i]}...')
+            tiff_arr, time_arr = m.load_tiff_arr(i)
             if m.plot_delta:
                 median_tiff_arr = self.calc_median_tiff_arr(tiff_arr)
             else:
                 median_tiff_arr = None
-            im = self._render_thumbnail(md.frame_times, md.odor_time,
-                                        m.spatial_blur, tiff_arr,
+            im = self._render_thumbnail(m.spatial_blur, tiff_arr, time_arr,
                                         median_tiff_arr, True, m.rois,
                                         m.rois_focused)
             im_list.append(im)
         im_list[0].save(TIFF_EXPORT_PATH, append_images=im_list[1:])
+        print('Tiff file exported.')
