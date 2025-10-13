@@ -15,6 +15,36 @@ from datatypes import (ByStimIDPlotSetting, ByTrialPlotSetting, PageSetting,
 PAGE_SETTING_VIEW_DICT: dict[PageSetting, type] = dict()
 
 
+class FlowFrame(ttk.Frame):
+
+    def __init__(self, master, padding, **kwargs):
+        super().__init__(master, **kwargs)
+        self.padding = padding
+        self.bind("<Configure>", self._on_configure)
+
+    def _on_configure(self, event=None):
+        x, y, row_height = self.padding, self.padding, 0
+        width = self.winfo_width()
+
+        for widget in self.winfo_children():
+            widget.update_idletasks()
+            w, h = widget.winfo_reqwidth(), widget.winfo_reqheight()
+
+            # Wrap to next line unless one widget takes up more than
+            # the entire width already
+            if (x + w + self.padding
+                    > width) and (self.padding + w + self.padding < width):
+                x = self.padding
+                y += row_height + self.padding
+                row_height = 0
+
+            widget.place(x=x, y=y, width=w, height=h)
+            x += w + self.padding
+            row_height = max(row_height, h)
+
+        self.config(height=y + row_height + self.padding)
+
+
 @for_page(PAGE_SETTING_VIEW_DICT, PageSetting.BY_TRIAL)
 class ByTrialView(ttk.Frame):
 
@@ -158,8 +188,8 @@ class ByTrialView(ttk.Frame):
                                             self.display_frame,
                                             pack_toolbar=False)
         self.toolbar.pack(pady=(0, SMALL_PAD), fill='x')
-        self.plot_button_frame = ttk.Frame(self.display_frame)
-        self.plot_button_frame.pack(pady=SMALL_PAD)
+        self.plot_button_frame = FlowFrame(self.display_frame, SMALL_PAD)
+        self.plot_button_frame.pack(fill='x', expand=True)
         self.plot_setting_var = tk.StringVar()
         self.plot_buttons = []
         for i, s in enumerate(ByTrialPlotSetting):
@@ -167,7 +197,6 @@ class ByTrialView(ttk.Frame):
                                      text=s.value,
                                      variable=self.plot_setting_var,
                                      value=s.value)
-            button.pack(padx=int(SMALL_PAD / 2), side='left')
             button.configure(command=self.on_plot_setting_button)
             self.plot_buttons.append(button)
 
@@ -448,8 +477,8 @@ class ByStimIDView(ttk.Frame):
                                             self.display_frame,
                                             pack_toolbar=False)
         self.toolbar.pack(pady=(0, SMALL_PAD), fill='x')
-        self.plot_button_frame = ttk.Frame(self.display_frame)
-        self.plot_button_frame.pack(pady=SMALL_PAD)
+        self.plot_button_frame = FlowFrame(self.display_frame, SMALL_PAD)
+        self.plot_button_frame.pack(fill='x', expand=True)
         self.plot_setting_var = tk.StringVar()
         self.plot_buttons = []
         for i, s in enumerate(ByStimIDPlotSetting):
@@ -457,7 +486,6 @@ class ByStimIDView(ttk.Frame):
                                      text=s.value,
                                      variable=self.plot_setting_var,
                                      value=s.value)
-            button.pack(padx=int(SMALL_PAD / 2), side='left')
             button.configure(command=self.on_plot_setting_button)
             self.plot_buttons.append(button)
 
@@ -501,15 +529,27 @@ class ByStimIDView(ttk.Frame):
                                    anchor='nw',
                                    tags='IMG')
 
-    def update_fig(self: Self) -> None:
-        self.canvas.draw()
-        self.toolbar.update()
-
     def stop_image_job(self: Self) -> None:
         if self.tk_image_job is not None:
             self.tk_image.after_cancel(self.tk_image_job)
             self.tk_image_job = None
-        # self.controller.delete_running_lines()
+        self.controller.delete_running_lines()
+
+    def show_in_progress_screen(self: Self) -> None:
+        self.fig.clf()
+        self.fig.text(0.5,
+                      0.5,
+                      'Computing...',
+                      fontsize=30,
+                      horizontalalignment='center',
+                      verticalalignment='center')
+        self.update_fig(flush=True)
+
+    def update_fig(self: Self, flush=False) -> None:
+        self.canvas.draw()
+        if flush:
+            self.canvas.flush_events()
+        self.toolbar.update()
 
     def cue_update_job(self: Self, update_figure: bool = True) -> None:
 
@@ -644,6 +684,8 @@ class View(tk.Tk):
         self.current_page.controller.update()
 
     def on_resize_window(self: Self, event: tk.Event) -> None:
+        if not self.page_setting_var.get():
+            return
         if event.widget == self:
             w, h = event.width, event.height
             if (w != self.window_width) or (h != self.window_height):

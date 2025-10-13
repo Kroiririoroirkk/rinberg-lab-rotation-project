@@ -130,6 +130,8 @@ class ByStimIDController:
         if redraw_image:
             self.view.set_ci_image(*self.model.update_ci(frame))
         if redraw_figure:
+            if frame is None:
+                self.view.show_in_progress_screen()
             self.model.update_plot(self.view.fig, frame)
             self.view.update_fig()
 

@@ -1,4 +1,3 @@
-import tkinter as tk
 from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
@@ -206,3 +205,8 @@ class ByTrialPlotSetting(Enum):
 class ByStimIDPlotSetting(Enum):
     NONE: Self = 'None'
     FLUORESCENCE: Self = 'Fluorescence'
+    ODOR_1_RESPONSE: Self = 'Odor 1 response'
+    ODOR_2_RESPONSE: Self = 'Odor 2 response'
+    ODOR_1_LATENCY: Self = 'Odor 1 latency'
+    ODOR_2_LATENCY: Self = 'Odor 2 latency'
+    GLOM_MAX_RESPONSE: Self = 'Glom max response'
