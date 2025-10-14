@@ -245,7 +245,7 @@ class ByStimIDPlotHandler:
 
             for i, roi_name in enumerate(m.rois_focused):
                 for rel_j, j in enumerate(stim_cond_idx):
-                    tiff_arr, time_arr = m.load_tiff_arr(j)
+                    tiff_arr, time_arr, _ = m.load_tiff_arr(j)
                     ys, xs = np.indices(tiff_arr.shape[1:])
                     indices_in_roi = ROIManager.is_in_roi(
                         xs, ys, m.rois[roi_name])
@@ -359,7 +359,7 @@ class ByStimIDPlotHandler:
 
             for i, roi_name in enumerate(m.rois_focused):
                 for rel_j, j in enumerate(stim_cond_idx):
-                    tiff_arr, time_arr = m.load_tiff_arr(j)
+                    tiff_arr, time_arr, _ = m.load_tiff_arr(j)
                     ys, xs = np.indices(tiff_arr.shape[1:])
                     indices_in_roi = ROIManager.is_in_roi(
                         xs, ys, m.rois[roi_name])
@@ -431,7 +431,7 @@ class ByStimIDPlotHandler:
 
             for i, roi_name in enumerate(m.rois_focused):
                 for j, stim_id in enumerate(m.stim_ids):
-                    tiff_arr, time_arr = m.load_tiff_arr(j)
+                    tiff_arr, time_arr, _ = m.load_tiff_arr(j)
                     ys, xs = np.indices(tiff_arr.shape[1:])
                     indices_in_roi = ROIManager.is_in_roi(
                         xs, ys, m.rois[roi_name])

@@ -297,10 +297,10 @@ class ByTrialView(ttk.Frame):
 
     def on_jump_to_button(self: Self) -> None:
         try:
-            i = self.jump_to_var.get()
+            i = int(self.jump_to_var.get())
         except ValueError:
             return
-        self.controller.jump_to_file(int(i) - 1)
+        self.controller.jump_to_file(i - 1)
         self.stop_image_job()
         self.controller.update()
 
@@ -598,10 +598,10 @@ class ByStimIDView(ttk.Frame):
 
     def on_jump_to_button(self: Self) -> None:
         try:
-            i = self.jump_to_var.get()
+            i = int(self.jump_to_var.get())
         except ValueError:
             return
-        self.controller.jump_to_stim_id(int(i) - 1)
+        self.controller.jump_to_stim_id(i - 1)
         self.stop_image_job()
         self.controller.update()
 

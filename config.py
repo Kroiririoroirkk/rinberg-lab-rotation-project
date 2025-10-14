@@ -24,7 +24,8 @@ DEFAULT_TEMPORAL_BLUR: Final[int] = 5
 MIN_DELTA_F: Final[float] = -0.5
 MAX_DELTA_F: Final[float] = 2.0
 HEAT_CMAP: Final[matplotlib.colors.Colormap] = matplotlib.colormaps['inferno']
-PROPORTION_TRIALS_THRESHOLD: Final[float] = 0.8
+BEFORE_ODOR_TIME: Final[float] = 3000  # milliseconds
+AFTER_ODOR_TIME: Final[float] = 3000  # milliseconds
 CALCIUM_VIDEO_DT: Final[float] = 33  # milliseconds
 
 # Tkinter format settings

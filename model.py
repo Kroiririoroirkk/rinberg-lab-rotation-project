@@ -114,10 +114,10 @@ class ByStimIDModel:
         self.parent = parent
         self.stim_ids = sorted(list(self.stim_condition_dict.keys()))
         self._stim_id_i = 0
-        self._num_trials_stim_id = None
         self._median_tiff_arr = None
         self._tiff_arrs = dict()
         self._time_arrs = dict()
+        self._trial_id_arrs = dict()
         self.rois_focused = []
         self.start_from_odor = True
         self.hide_rois = False
@@ -158,15 +158,6 @@ class ByStimIDModel:
         self._tiff_arr = None
 
     @property
-    def num_trials_stim_id(self: Self) -> int:
-        if self._num_trials_stim_id is None:
-            self._num_trials_stim_id = len([
-                1 for metadata in self.h5_data
-                if metadata.stim_id == self.stim_id
-            ])
-        return self._num_trials_stim_id
-
-    @property
     def stim_id(self: Self) -> StimID:
         return self.stim_ids[self.stim_id_i]
 
@@ -175,22 +166,28 @@ class ByStimIDModel:
         return self.stim_condition_dict[self.stim_id]
 
     def load_tiff_arr(
-            self: Self,
-            i: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        self: Self, i: int
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.int64]]:
         if i not in self._tiff_arrs:
             loaded = self.ci_handler.load_image(self, self.stim_ids[i])
-            self._tiff_arrs[i], self._time_arrs[i] = loaded
-        return self._tiff_arrs[i], self._time_arrs[i]
+            self._tiff_arrs[i], self._time_arrs[i], self._trial_id_arrs[
+                i] = loaded
+        return self._tiff_arrs[i], self._time_arrs[i], self._trial_id_arrs[i]
 
     @property
     def tiff_arr(self: Self) -> NDArray[np.float64]:
-        tiff_arr, _ = self.load_tiff_arr(self.stim_id_i)
+        tiff_arr, _, _ = self.load_tiff_arr(self.stim_id_i)
         return tiff_arr
 
     @property
     def time_arr(self: Self) -> NDArray[np.float64]:
-        _, time_arr = self.load_tiff_arr(self.stim_id_i)
+        _, time_arr, _ = self.load_tiff_arr(self.stim_id_i)
         return time_arr
+
+    @property
+    def num_trials_stim_id(self: Self) -> int:
+        _, _, trial_id_arrs = self.load_tiff_arr(self.stim_id_i)
+        return trial_id_arrs.size
 
     @property
     def median_tiff_arr(self: Self) -> NDArray[np.float64]:

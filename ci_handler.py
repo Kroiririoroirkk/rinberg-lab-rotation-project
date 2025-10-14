@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
-
+import gc
 import numpy as np
 import scipy.ndimage
 import tifffile
@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw
 
 from config import (BASELINE_AVG_END, BASELINE_AVG_START, CALCIUM_VIDEO_DT,
                     HEAT_CMAP, MAX_DELTA_F, MIN_DELTA_F, NUM_FRAMES_AVG,
-                    NUM_FRAMES_BUYIN, PROPORTION_TRIALS_THRESHOLD,
+                    NUM_FRAMES_BUYIN, BEFORE_ODOR_TIME, AFTER_ODOR_TIME,
                     TIFF_EXPORT_PATH)
 from datatypes import ROIManager, ROIName, StimID
 
@@ -166,7 +166,7 @@ class ByStimIDCIHandler:
 
     def load_image(
         self: Self, m: ByStimIDModel, stim_id: StimID | None
-    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.int64]]:
         if stim_id is None:
             stim_id = m.stim_id
         indices = [
@@ -187,40 +187,45 @@ class ByStimIDCIHandler:
                 frame_times_arr, frame_times_arr_isort, odor_times_arr)
         ]
 
-        # Choose time points that are present in at least a critical
-        # fraction of trials (odor presentation time = 0)
-        min_times_arr = [ts[0] for ts in frame_times_arr]
-        max_times_arr = [ts[-1] for ts in frame_times_arr]
-        start_time = np.percentile(min_times_arr,
-                                   PROPORTION_TRIALS_THRESHOLD * 100)
-        end_time = np.percentile(max_times_arr,
-                                 (1 - PROPORTION_TRIALS_THRESHOLD) * 100)
-        time_arr = np.arange(start_time, end_time, CALCIUM_VIDEO_DT)
+        start_time = -BEFORE_ODOR_TIME
+        end_time = AFTER_ODOR_TIME
+        dt = CALCIUM_VIDEO_DT
+        time_arr = np.arange(start_time, end_time, dt)
 
-        # For each time point t, include frames taken between the timestamps
-        # t and t + DT
-        image_size = tiff_arrs[0].shape[1:]
-        tiff_arr = np.zeros((time_arr.size, *image_size))
-        count_arr = np.zeros_like(time_arr)
-        for i in range(len(tiff_arrs)):
-            arr = tiff_arrs[i]
-            frame_times = frame_times_arr[i]
-            time_j = 0
-            frame_j = 0
-            while frame_j < arr.shape[0] and time_j < time_arr.shape[0]:
-                if time_arr[time_j] < frame_times[frame_j]:
-                    if frame_times[
-                            frame_j] < time_arr[time_j] + CALCIUM_VIDEO_DT:
-                        tiff_arr[time_j] = tiff_arr[time_j] + arr[frame_j]
-                        count_arr[time_j] = count_arr[time_j] + 1
-                        frame_j = frame_j + 1
-                        time_j = time_j + 1
-                    else:
-                        time_j = time_j + 1
-                else:
-                    frame_j = frame_j + 1
-        avg_tiff_arr = tiff_arr / count_arr[:, np.newaxis, np.newaxis]
-        return avg_tiff_arr, time_arr
+        avg_tiff_arr = np.zeros((time_arr.size, *tiff_arrs[0].shape[1:]))
+        trial_ids = []
+        for i, tiff_arr_trial, time_arr_trial in zip(indices, tiff_arrs,
+                                                     frame_times_arr):
+            if time_arr_trial[0] > start_time:
+                continue
+            if time_arr_trial[-1] < end_time:
+                continue
+            trial_ids.append(i)
+
+            # Remove duplicate time entries from time_arr_trial by deleting
+            # all frames after the first
+            time_arr_unique, unique_idx = np.unique(time_arr_trial,
+                                                    return_index=True)
+            tiff_arr_unique = tiff_arr_trial[unique_idx]
+
+            # Perform linear interpolation, use vectorization to be faster than
+            # scipy.interpolate.make_interp_spline implementation
+            idx = np.searchsorted(time_arr_unique, time_arr, side='left')
+            idx = np.clip(idx, 1, time_arr_unique.size - 1)
+            x0 = time_arr_unique[idx - 1]
+            x1 = time_arr_unique[idx]
+            w = (time_arr - x0) / (x1 - x0)
+            y0 = tiff_arr_unique[idx - 1]
+            y1 = tiff_arr_unique[idx]
+            tiff_arr = (1 - w)[:, np.newaxis,
+                               np.newaxis] * y0 + w[:, np.newaxis,
+                                                    np.newaxis] * y1
+
+            avg_tiff_arr += tiff_arr
+        trial_ids = np.array(trial_ids, dtype=np.int64)
+        avg_tiff_arr /= trial_ids.size
+
+        return avg_tiff_arr, time_arr, trial_ids
 
     def render_frame(self: Self, m: ByStimIDModel, frame: int) -> Image.Image:
         tiff_arr_processed = np.mean(m.tiff_arr[frame:frame + m.temporal_blur +
@@ -289,7 +294,7 @@ class ByStimIDCIHandler:
         im_list = []
         for i in range(len(m.stim_ids)):
             print(f'Saving Stim ID {m.stim_ids[i]}...')
-            tiff_arr, time_arr = m.load_tiff_arr(i)
+            tiff_arr, time_arr, _ = m.load_tiff_arr(i)
             if m.plot_delta:
                 median_tiff_arr = self.calc_median_tiff_arr(tiff_arr)
             else:
