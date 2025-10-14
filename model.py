@@ -238,12 +238,13 @@ class Model:
         self: Self, h5_path: Path, h5_pickle_path: Path
     ) -> tuple[list[TrialMetadata], dict[StimID, StimCondition]]:
         print('Loading H5 file...')
+        full_path = h5_path.parent.joinpath(h5_pickle_path)
         try:
-            with h5_pickle_path.open('rb') as f:
+            with full_path.open('rb') as f:
                 h5_data, stim_condition_dict = pickle.load(f)
         except FileNotFoundError:
             h5_data, stim_condition_dict = TrialMetadata.list_from_h5(h5_path)
-            with h5_pickle_path.open('wb') as f:
+            with full_path.open('wb') as f:
                 pickle.dump((h5_data, stim_condition_dict), f)
         return h5_data, stim_condition_dict
 
