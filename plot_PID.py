@@ -7,7 +7,7 @@ photoionization (PID) measurements.
 
 Author: Eric Tao (Eric.Tao@nyulangone.org)
 Date created: 2025-10-03
-Date last updated: 2025-10-03
+Date last updated: 2025-10-15
 """
 import h5py
 import matplotlib.pyplot as plt
@@ -16,7 +16,7 @@ from pathlib import Path
 import scipy.signal
 import scipy.stats
 
-DATA_DIR = Path('data/251003_passive_test2')
+DATA_DIR = Path('data/251003_passive_test2/PID_only')
 PID_H5 = Path(DATA_DIR, '251003_PID_0001-0120.h5')
 ODOR_H5 = Path(DATA_DIR, 'mouse0001_sess0_D2025_10_3T10_59_9.h5')
 FVALVE_CHANNEL = 3
