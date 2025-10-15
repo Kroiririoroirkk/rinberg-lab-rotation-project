@@ -33,15 +33,35 @@ class ByTrialController:
             self.view.update_fig()
 
     def decrement_tiff_file(self: Self) -> None:
-        self.model.tiff_file_i = self.model.tiff_file_i - 1
+        i = 1
+        while True:
+            try:
+                self.model.tiff_file_i = self.model.tiff_file_i - i
+                return
+            except ValueError:
+                i += 1
 
     def increment_tiff_file(self: Self) -> None:
-        self.model.tiff_file_i = self.model.tiff_file_i + 1
+        i = 1
+        while True:
+            try:
+                self.model.tiff_file_i = self.model.tiff_file_i + i
+                return
+            except ValueError:
+                i -= 1
+
+    def jump_to_file(self: Self, i: int) -> None:
+        try:
+            self.model.tiff_file_i = i
+        except ValueError:
+            pass
 
     def play_ci_video(self: Self, speed: float) -> None:
+        last_frame = min(self.model.tiff_arr.shape[0],
+                         self.model.metadata.frame_times.size)
 
         def render(i: int) -> None:
-            if i + 1 < self.model.tiff_arr.shape[0]:
+            if i + 1 < last_frame:
                 self.update(frame=i)
                 dt = int((self.model.metadata.frame_times[i + 1] -
                           self.model.metadata.frame_times[i]) / speed)
@@ -62,9 +82,6 @@ class ByTrialController:
 
     def select_all_rois(self: Self) -> None:
         self.model.rois_focused = list(self.model.rois.keys())
-
-    def jump_to_file(self: Self, i: int) -> None:
-        self.model.tiff_file_i = i
 
     def save_tiff(self: Self) -> None:
         self.model.export_tiff()
@@ -141,6 +158,9 @@ class ByStimIDController:
     def increment_stim_id(self: Self) -> None:
         self.model.stim_id_i = self.model.stim_id_i + 1
 
+    def jump_to_stim_id(self: Self, i: int) -> None:
+        self.model.stim_id_i = i
+
     def play_ci_video(self: Self, speed: float) -> None:
 
         def render(i: int) -> None:
@@ -165,9 +185,6 @@ class ByStimIDController:
 
     def select_all_rois(self: Self) -> None:
         self.model.rois_focused = list(self.model.rois.keys())
-
-    def jump_to_stim_id(self: Self, i: int) -> None:
-        self.model.stim_id_i = i
 
     def save_tiff(self: Self) -> None:
         self.model.export_tiff()

@@ -1,4 +1,6 @@
+import dataclasses
 import pickle
+from collections import OrderedDict
 from pathlib import Path
 from typing import Self
 
@@ -8,7 +10,8 @@ from numpy.typing import NDArray
 from PIL import Image
 
 from ci_handler import ByStimIDCIHandler, ByTrialCIHandler
-from config import DEFAULT_SPATIAL_BLUR, DEFAULT_TEMPORAL_BLUR
+from config import (DEFAULT_SPATIAL_BLUR, DEFAULT_TEMPORAL_BLUR,
+                    IMAGE_CACHE_MAX_SIZE)
 from datatypes import (ByStimIDPlotSetting, ByTrialPlotSetting, PageSetting,
                        ROIManager, StimCondition, StimID, TrialMetadata,
                        for_page)
@@ -22,9 +25,10 @@ class ByTrialModel:
 
     def __init__(self: Self, parent: 'Model') -> None:
         self.parent = parent
-        self._tiff_file_i = 0
+        self.set_to_first_valid_tiff_file()
         self._median_tiff_arr = None
         self._tiff_arr = None
+        self._metadata = None
         self.rois_focused = []
         self.start_from_odor = True
         self.hide_rois = False
@@ -61,17 +65,39 @@ class ByTrialModel:
 
     @tiff_file_i.setter
     def tiff_file_i(self: Self, i: int) -> None:
-        self._tiff_file_i = i % len(self.tiff_files)
+        j = i % len(self.tiff_files)
+        metadata = self.h5_data[j]
+        if isinstance(metadata, str):
+            raise ValueError(
+                f'Failed to load metadata for file {i}: {metadata}')
+        self._tiff_file_i = j
         self._tiff_arr = None
+        self._metadata = None
+
+    def set_to_first_valid_tiff_file(self: Self) -> int:
+        i = 0
+        for i in range(len(self.tiff_files)):
+            try:
+                self.tiff_file_i = i
+                return
+            except ValueError:
+                pass
+        raise ValueError('No TIFF file with valid metadata found.')
 
     @property
     def tiff_path(self: Self) -> Path:
         return self.tiff_files[self.tiff_file_i]
 
-    @property
-    def tiff_arr(self: Self) -> NDArray[np.int16]:
+    def ensure_tiff_arr_loaded(self: Self) -> None:
         if self._tiff_arr is None:
             self._tiff_arr = self.ci_handler.load_image(self.tiff_path)
+
+    @property
+    def tiff_arr(self: Self) -> NDArray[np.int16]:
+        self.ensure_tiff_arr_loaded()
+        md = self.h5_data[self.tiff_file_i]
+        arr, _ = self.parent.match_frames_with_metadata(self._tiff_arr, md)
+        self._tiff_arr = arr
         return self._tiff_arr
 
     @property
@@ -85,7 +111,12 @@ class ByTrialModel:
 
     @property
     def metadata(self: Self) -> TrialMetadata:
-        return self.h5_data[self.tiff_file_i]
+        if self._metadata is None:
+            self.ensure_tiff_arr_loaded()
+            md = self.h5_data[self.tiff_file_i]
+            _, md = self.parent.match_frames_with_metadata(self._tiff_arr, md)
+            self._metadata = md
+        return self._metadata
 
     def toggle_roi(self: Self, roi_name: str) -> None:
         if roi_name in self.rois_focused:
@@ -115,9 +146,9 @@ class ByStimIDModel:
         self.stim_ids = sorted(list(self.stim_condition_dict.keys()))
         self._stim_id_i = 0
         self._median_tiff_arr = None
-        self._tiff_arrs = dict()
-        self._time_arrs = dict()
-        self._trial_id_arrs = dict()
+        self._tiff_arrs = OrderedDict()
+        self._time_arrs = OrderedDict()
+        self._trial_id_arrs = OrderedDict()
         self.rois_focused = []
         self.start_from_odor = True
         self.hide_rois = False
@@ -172,6 +203,8 @@ class ByStimIDModel:
             loaded = self.ci_handler.load_image(self, self.stim_ids[i])
             self._tiff_arrs[i], self._time_arrs[i], self._trial_id_arrs[
                 i] = loaded
+            if len(self._tiff_arrs) > IMAGE_CACHE_MAX_SIZE:
+                self._tiff_arrs.popitem(last=False)
         return self._tiff_arrs[i], self._time_arrs[i], self._trial_id_arrs[i]
 
     @property
@@ -233,6 +266,25 @@ class Model:
     def load_tiff_file_paths(self: Self, tiff_folder_path: Path) -> list[Path]:
         return sorted(
             [f for f in tiff_folder_path.iterdir() if f.suffix == '.tif'])
+
+    def match_frames_with_timestamps(
+        self: Self, arr: NDArray[np.int16], frame_times: NDArray[np.int64]
+    ) -> tuple[NDArray[np.int16], NDArray[np.int64]]:
+        # We currently have a problem where the number of frame timestamps
+        # does not necessarily match up with the number of frames. As a
+        # loose patch for this problem, we will zip the frames and timestamps
+        # up one by one from the beginning, then ignore any leftover data.
+        new_size = min(arr.shape[0], frame_times.size)
+        return arr[:new_size], frame_times[:new_size]
+
+    def match_frames_with_metadata(
+            self: Self, arr: NDArray[np.int16],
+            md: TrialMetadata) -> tuple[NDArray[np.int16], TrialMetadata]:
+        if arr.shape[0] == md.frame_times.size:
+            return arr, md
+        arr, frame_times = self.match_frames_with_timestamps(
+            arr, md.frame_times)
+        return arr, dataclasses.replace(md, frame_times=frame_times)
 
     def load_h5(
         self: Self, h5_path: Path, h5_pickle_path: Path

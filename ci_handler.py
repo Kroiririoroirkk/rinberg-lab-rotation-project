@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
-import gc
 import numpy as np
 import scipy.ndimage
 import tifffile
@@ -63,8 +62,8 @@ class ByTrialCIHandler:
         sc = md.stim_condition
         return (f'Average of {NUM_FRAMES_AVG} frames after odor presentation '
                 f'({m.tiff_path.name})\nOdors = '
-                f'{sc.odor1_flow} {sc.odor1.value} and '
-                f'{sc.odor2_flow} {sc.odor2.value}, '
+                f'{sc.odor1_flow} {sc.odor1} and '
+                f'{sc.odor2_flow} {sc.odor2}, '
                 f'Target = {md.target.value}, '
                 f'Response = {md.response.value}')
 
@@ -139,6 +138,9 @@ class ByTrialCIHandler:
     def export_tiff(self: Self, m: ByTrialModel) -> None:
         im_list = []
         for tiff_path, md in zip(m.tiff_files, m.h5_data):
+            if isinstance(md, str):
+                print(f'Skipping {tiff_path} because of invalid metadata...')
+                continue
             print(f'Saving {tiff_path}...')
             with tifffile.TiffFile(tiff_path) as tf:
                 tiff_arr = tf.asarray(range(len(tf.pages)))
@@ -161,21 +163,34 @@ class ByStimIDCIHandler:
         sc = m.stim_condition
         return (f'Average of {NUM_FRAMES_AVG} frames after odor presentation '
                 f'(average of all {m.num_trials_stim_id} stim ID {m.stim_id} '
-                f'trials)\nOdors = {sc.odor1_flow} {sc.odor1.value} and '
-                f'{sc.odor2_flow} {sc.odor2.value}')
+                f'trials)\nOdors = {sc.odor1_flow} {sc.odor1} and '
+                f'{sc.odor2_flow} {sc.odor2}')
 
     def load_image(
-        self: Self, m: ByStimIDModel, stim_id: StimID | None
-    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.int64]]:
+        self: Self,
+        m: ByStimIDModel,
+        stim_id: StimID | None,
+        return_individual_images: bool = False
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64],
+               NDArray[np.int64]] | tuple[
+                   NDArray[np.float64], NDArray[np.float64], NDArray[np.int64],
+                   list[NDArray[np.float64]]]:
         if stim_id is None:
             stim_id = m.stim_id
         indices = [
             i for i in range(len(m.tiff_files))
-            if m.h5_data[i].stim_id == stim_id
+            if not isinstance(m.h5_data[i], str)
+            and m.h5_data[i].stim_id == stim_id
         ]
         tiff_arrs = [_load_image(m.tiff_files[i]) for i in indices]
         frame_times_arr = [m.h5_data[i].frame_times for i in indices]
         odor_times_arr = [m.h5_data[i].odor_time for i in indices]
+
+        tiff_arrs, frame_tims_arr = list(
+            zip(*[
+                m.parent.match_frames_with_timestamps(arr, frame_times)
+                for arr, frame_times in zip(tiff_arrs, frame_times_arr)
+            ]))
 
         frame_times_arr_isort = [np.argsort(ts) for ts in frame_times_arr]
         tiff_arrs = [
@@ -192,16 +207,9 @@ class ByStimIDCIHandler:
         dt = CALCIUM_VIDEO_DT
         time_arr = np.arange(start_time, end_time, dt)
 
-        avg_tiff_arr = np.zeros((time_arr.size, *tiff_arrs[0].shape[1:]))
-        trial_ids = []
-        for i, tiff_arr_trial, time_arr_trial in zip(indices, tiff_arrs,
-                                                     frame_times_arr):
-            if time_arr_trial[0] > start_time:
-                continue
-            if time_arr_trial[-1] < end_time:
-                continue
-            trial_ids.append(i)
-
+        def interpolate(
+                tiff_arr_trial: NDArray[np.int16],
+                time_arr_trial: NDArray[np.int64]) -> NDArray[np.float64]:
             # Remove duplicate time entries from time_arr_trial by deleting
             # all frames after the first
             time_arr_unique, unique_idx = np.unique(time_arr_trial,
@@ -220,12 +228,38 @@ class ByStimIDCIHandler:
             tiff_arr = (1 - w)[:, np.newaxis,
                                np.newaxis] * y0 + w[:, np.newaxis,
                                                     np.newaxis] * y1
+            return tiff_arr
 
-            avg_tiff_arr += tiff_arr
-        trial_ids = np.array(trial_ids, dtype=np.int64)
-        avg_tiff_arr /= trial_ids.size
-
-        return avg_tiff_arr, time_arr, trial_ids
+        if return_individual_images:
+            trial_ids = []
+            interpolated_tiff_arrs = []
+            for i, tiff_arr_trial, time_arr_trial in zip(
+                    indices, tiff_arrs, frame_times_arr):
+                if time_arr_trial[0] > start_time:
+                    continue
+                if time_arr_trial[-1] < end_time:
+                    continue
+                trial_ids.append(i)
+                tiff_arr = interpolate(tiff_arr_trial, time_arr_trial)
+                interpolated_tiff_arrs.append(tiff_arr)
+            trial_ids = np.array(trial_ids, dtype=np.int64)
+            avg_tiff_arr = np.mean(interpolated_tiff_arrs, axis=0)
+            return avg_tiff_arr, time_arr, trial_ids, interpolated_tiff_arrs
+        else:
+            avg_tiff_arr = np.zeros((time_arr.size, *tiff_arrs[0].shape[1:]))
+            trial_ids = []
+            for i, tiff_arr_trial, time_arr_trial in zip(
+                    indices, tiff_arrs, frame_times_arr):
+                if time_arr_trial[0] > start_time:
+                    continue
+                if time_arr_trial[-1] < end_time:
+                    continue
+                trial_ids.append(i)
+                tiff_arr = interpolate(tiff_arr_trial, time_arr_trial)
+                avg_tiff_arr += tiff_arr
+            trial_ids = np.array(trial_ids, dtype=np.int64)
+            avg_tiff_arr /= trial_ids.size
+            return avg_tiff_arr, time_arr, trial_ids
 
     def render_frame(self: Self, m: ByStimIDModel, frame: int) -> Image.Image:
         tiff_arr_processed = np.mean(m.tiff_arr[frame:frame + m.temporal_blur +
