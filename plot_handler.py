@@ -513,6 +513,43 @@ class ByStimIDPlotHandler:
                      horizontalalignment='center',
                      verticalalignment='center')
 
+    def render_num_gloms_active_plot(self: Self, fig: Figure, m: ByStimIDModel,
+                                     frame: int | None) -> None:
+        if frame is not None:
+            return
+        fig.clf()
+        if m.rois_focused:
+            stim_cond_idx, odor_labels = self.generate_conds_from_odor(m, None)
+            roi_idx = [
+                list(m.rois).index(roi_name) for roi_name in m.rois_focused
+            ]
+            x_labels = odor_labels
+
+            self.process_tiffs(m)
+            idx = np.ix_(roi_idx, stim_cond_idx)
+            significance_heatmap = self.significance_heatmap[idx]
+            heatmap = significance_heatmap < 0.05
+            num_gloms_active = np.sum(heatmap, axis=0)
+
+            ax = fig.add_subplot()
+            ax.bar(range(len(x_labels)), num_gloms_active)
+            ax.set_xlabel('Stimulus condition')
+            ax.set_xticks(range(len(x_labels)),
+                          labels=x_labels,
+                          rotation=45,
+                          horizontalalignment='right',
+                          rotation_mode='anchor')
+            ax.set_ylabel('# of ROIs significantly active (p < 0.05)')
+            ax.set_title('Number of glomeruli active by stimulus condition')
+            fig.tight_layout()
+        else:
+            fig.text(0.5,
+                     0.5,
+                     'Select an ROI...',
+                     fontsize=30,
+                     horizontalalignment='center',
+                     verticalalignment='center')
+
     def render_plot(self: Self, fig: Figure, m: ByStimIDModel,
                     frame: int | None) -> None:
         s = m.plot_setting
@@ -530,6 +567,8 @@ class ByStimIDPlotHandler:
             self.render_odor_2_latency_plot(fig, m, frame)
         elif s == ByStimIDPlotSetting.GLOM_MAX_RESPONSE:
             self.render_glom_max_response_plot(fig, m, frame)
+        elif s == ByStimIDPlotSetting.NUM_GLOMS_ACTIVE:
+            self.render_num_gloms_active_plot(fig, m, frame)
 
     def delete_running_lines(self: Self) -> None:
         if self.cache_line_fluorescence_plot:

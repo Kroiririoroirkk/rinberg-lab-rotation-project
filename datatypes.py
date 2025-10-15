@@ -224,3 +224,4 @@ class ByStimIDPlotSetting(Enum):
     ODOR_1_LATENCY: Self = 'Odor 1 latency'
     ODOR_2_LATENCY: Self = 'Odor 2 latency'
     GLOM_MAX_RESPONSE: Self = 'Glom max response'
+    NUM_GLOMS_ACTIVE: Self = 'Glom count'
