@@ -65,3 +65,10 @@ ODOR_DICT: Final[OrderedDict[bytes, str]] = {
 #     b'EthylTiglate': 'Ethyl Tiglate',
 #     b'2MDA': '2MDA'
 # }
+
+# PID reading settings
+PID_DATA_DIR = Path('data/251003_passive_test2/PID_only')
+PID_H5 = Path(PID_DATA_DIR, '251003_PID_0001-0120.h5')
+PID_ODOR_H5 = Path(PID_DATA_DIR, 'mouse0001_sess0_D2025_10_3T10_59_9.h5')
+PID_FVALVE_CHANNEL = 3
+PID_CHANNEL = 4

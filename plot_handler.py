@@ -277,49 +277,101 @@ class ByStimIDPlotHandler:
 
     def generate_conds_from_odor(
             self: Self, m: ByStimIDModel,
-            odor: int | None) -> tuple[list[int], list[str]]:
+            odor: int | None) -> tuple[list[int], list[str]] | None:
         stim_conds = [m.stim_condition_dict[stim_id] for stim_id in m.stim_ids]
         if odor == 1:
-            stim_cond_idx = [
-                i for i, cond in enumerate(stim_conds)
-                if cond.odor2 == Odor.EMPTY
-            ]
-            odor_vals = [(stim_conds[i].odor1, stim_conds[i].odor1_flow, i)
-                         for i in stim_cond_idx]
-            odors = list(ODOR_DICT.values())
-            odor_vals.sort(key=lambda t: (odors.index(t[0]), t[1]))
-            stim_cond_idx = [i for _, _, i in odor_vals]
-            odor_labels = [
-                f'{m.stim_ids[i]}: {odor_flow} {odor}'
-                for odor, odor_flow, i in odor_vals
-            ]
+            if m.plot_pid:
+                try:
+                    stim_cond_idx = [
+                        i for i, cond in enumerate(stim_conds)
+                        if cond.odor2 == Odor.EMPTY
+                    ]
+                    odor_vals = [(m.pid_reading_dict[stim_conds[i].odor1,
+                                                     stim_conds[i].odor1_flow],
+                                  i) for i in stim_cond_idx]
+                    odor_vals.sort()
+                    stim_cond_idx = [i for _, i in odor_vals]
+                    odor_labels = [
+                        f'{m.stim_ids[i]}: PID {pid:.2f}'
+                        for pid, i in odor_vals
+                    ]
+                except KeyError:
+                    return None
+            else:
+                stim_cond_idx = [
+                    i for i, cond in enumerate(stim_conds)
+                    if cond.odor2 == Odor.EMPTY
+                ]
+                odor_vals = [(stim_conds[i].odor1, stim_conds[i].odor1_flow, i)
+                             for i in stim_cond_idx]
+                odors = list(ODOR_DICT.values())
+                odor_vals.sort(key=lambda t: (odors.index(t[0]), t[1]))
+                stim_cond_idx = [i for _, _, i in odor_vals]
+                odor_labels = [
+                    f'{m.stim_ids[i]}: {odor_flow} {odor}'
+                    for odor, odor_flow, i in odor_vals
+                ]
         elif odor == 2:
-            stim_cond_idx = [
-                i for i, cond in enumerate(stim_conds)
-                if cond.odor1 == Odor.EMPTY
-            ]
-            odor_vals = [(stim_conds[i].odor2, stim_conds[i].odor2_flow, i)
-                         for i in stim_cond_idx]
-            odors = list(ODOR_DICT.values())
-            odor_vals.sort(key=lambda t: (odors.index(t[0]), t[1]))
-            stim_cond_idx = [i for _, _, i in odor_vals]
-            odor_labels = [
-                f'{m.stim_ids[i]}: {odor_flow} {odor}'
-                for odor, odor_flow, i in odor_vals
-            ]
+            if m.plot_pid:
+                try:
+                    stim_cond_idx = [
+                        i for i, cond in enumerate(stim_conds)
+                        if cond.odor1 == Odor.EMPTY
+                    ]
+                    odor_vals = [(m.pid_reading_dict[stim_conds[i].odor2,
+                                                     stim_conds[i].odor2_flow],
+                                  i) for i in stim_cond_idx]
+                    odor_vals.sort()
+                    stim_cond_idx = [i for _, i in odor_vals]
+                    odor_labels = [
+                        f'{m.stim_ids[i]}: PID {pid:.2f}'
+                        for pid, i in odor_vals
+                    ]
+                except KeyError:
+                    return None
+            else:
+                stim_cond_idx = [
+                    i for i, cond in enumerate(stim_conds)
+                    if cond.odor1 == Odor.EMPTY
+                ]
+                odor_vals = [(stim_conds[i].odor2, stim_conds[i].odor2_flow, i)
+                             for i in stim_cond_idx]
+                odors = list(ODOR_DICT.values())
+                odor_vals.sort(key=lambda t: (odors.index(t[0]), t[1]))
+                stim_cond_idx = [i for _, _, i in odor_vals]
+                odor_labels = [
+                    f'{m.stim_ids[i]}: {odor_flow} {odor}'
+                    for odor, odor_flow, i in odor_vals
+                ]
         elif odor is None:
-            stim_cond_idx = list(range(len(stim_conds)))
-            odor_vals = [(stim_conds[i].odor1, stim_conds[i].odor1_flow,
-                          stim_conds[i].odor2, stim_conds[i].odor2_flow, i)
-                         for i in stim_cond_idx]
-            odors = list(ODOR_DICT.values())
-            odor_vals.sort(key=lambda t:
-                           (odors.index(t[0]), t[1], odors.index(t[2]), t[3]))
-            stim_cond_idx = [i for _, _, _, _, i in odor_vals]
-            odor_labels = [
-                f'{m.stim_ids[i]}: {odor_flow1} {odor1} + {odor_flow2} {odor2}'
-                for odor1, odor_flow1, odor2, odor_flow2, i in odor_vals
-            ]
+            if m.plot_pid:
+                try:
+                    stim_cond_idx = list(range(len(stim_conds)))
+                    # Assume I only care about odor 2
+                    odor_vals = [(m.pid_reading_dict[stim_conds[i].odor2,
+                                                     stim_conds[i].odor2_flow],
+                                  i) for i in stim_cond_idx]
+                    odor_vals.sort()
+                    stim_cond_idx = [i for _, i in odor_vals]
+                    odor_labels = [
+                        f'{m.stim_ids[i]}: PID {pid:.2f}'
+                        for pid, i in odor_vals
+                    ]
+                except KeyError:
+                    return None
+            else:
+                stim_cond_idx = list(range(len(stim_conds)))
+                odor_vals = [(stim_conds[i].odor1, stim_conds[i].odor1_flow,
+                              stim_conds[i].odor2, stim_conds[i].odor2_flow, i)
+                             for i in stim_cond_idx]
+                odors = list(ODOR_DICT.values())
+                odor_vals.sort(key=lambda t: (odors.index(t[0]), t[1],
+                                              odors.index(t[2]), t[3]))
+                stim_cond_idx = [i for _, _, _, _, i in odor_vals]
+                odor_labels = [
+                    f'{m.stim_ids[i]}: {odor_flow1} {odor1} + {odor_flow2} {odor2}'
+                    for odor1, odor_flow1, odor2, odor_flow2, i in odor_vals
+                ]
         else:
             raise ValueError(
                 f'Odor {odor} is not valid (needs to be either 1, 2, or None)')
@@ -332,7 +384,17 @@ class ByStimIDPlotHandler:
             return
         fig.clf()
         if m.rois_focused:
-            stim_cond_idx, odor_labels = self.generate_conds_from_odor(m, odor)
+            result = self.generate_conds_from_odor(m, odor)
+            if result is None:
+                fig.text(
+                    0.5,
+                    0.5,
+                    f'PID readings not available\nfor all stimulus conditions.',
+                    fontsize=30,
+                    horizontalalignment='center',
+                    verticalalignment='center')
+                return
+            stim_cond_idx, odor_labels = result
 
             if len(stim_cond_idx) == 0:
                 fig.text(0.5,
@@ -400,7 +462,17 @@ class ByStimIDPlotHandler:
             return
         fig.clf()
         if m.rois_focused:
-            stim_cond_idx, odor_labels = self.generate_conds_from_odor(m, odor)
+            result = self.generate_conds_from_odor(m, odor)
+            if result is None:
+                fig.text(
+                    0.5,
+                    0.5,
+                    f'PID readings not available\nfor all stimulus conditions.',
+                    fontsize=30,
+                    horizontalalignment='center',
+                    verticalalignment='center')
+                return
+            stim_cond_idx, odor_labels = result
 
             if len(stim_cond_idx) == 0:
                 fig.text(0.5,
@@ -470,7 +542,18 @@ class ByStimIDPlotHandler:
             return
         fig.clf()
         if m.rois_focused:
-            stim_cond_idx, odor_labels = self.generate_conds_from_odor(m, None)
+            result = self.generate_conds_from_odor(m, None)
+            if result is None:
+                fig.text(
+                    0.5,
+                    0.5,
+                    f'PID readings not available\nfor all stimulus conditions.',
+                    fontsize=30,
+                    horizontalalignment='center',
+                    verticalalignment='center')
+                return
+            stim_cond_idx, odor_labels = result
+
             roi_idx = [
                 list(m.rois).index(roi_name) for roi_name in m.rois_focused
             ]
@@ -519,7 +602,18 @@ class ByStimIDPlotHandler:
             return
         fig.clf()
         if m.rois_focused:
-            stim_cond_idx, odor_labels = self.generate_conds_from_odor(m, None)
+            result = self.generate_conds_from_odor(m, None)
+            if result is None:
+                fig.text(
+                    0.5,
+                    0.5,
+                    f'PID readings not available\nfor all stimulus conditions.',
+                    fontsize=30,
+                    horizontalalignment='center',
+                    verticalalignment='center')
+                return
+            stim_cond_idx, odor_labels = result
+
             roi_idx = [
                 list(m.rois).index(roi_name) for roi_name in m.rois_focused
             ]

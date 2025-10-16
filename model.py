@@ -12,10 +12,11 @@ from PIL import Image
 from ci_handler import ByStimIDCIHandler, ByTrialCIHandler
 from config import (DEFAULT_SPATIAL_BLUR, DEFAULT_TEMPORAL_BLUR,
                     IMAGE_CACHE_MAX_SIZE)
-from datatypes import (ByStimIDPlotSetting, ByTrialPlotSetting, PageSetting,
-                       ROIManager, StimCondition, StimID, TrialMetadata,
-                       for_page)
+from datatypes import (ByStimIDPlotSetting, ByTrialPlotSetting, Odor,
+                       PageSetting, ROIManager, StimCondition, StimID,
+                       TrialMetadata, for_page)
 from plot_handler import ByStimIDPlotHandler, ByTrialPlotHandler
+from plot_PID import get_pid_reading_dict
 
 PAGE_SETTING_MODEL_DICT: dict[PageSetting, type] = dict()
 
@@ -54,6 +55,10 @@ class ByTrialModel:
     @property
     def rois(self: Self) -> ROIManager:
         return self.parent.rois
+
+    @property
+    def pid_reading_dict(self: Self) -> ROIManager:
+        return self.parent.pid_reading_dict
 
     @property
     def page_setting(self: Self) -> PageSetting:
@@ -153,6 +158,7 @@ class ByStimIDModel:
         self.start_from_odor = True
         self.hide_rois = False
         self.plot_delta = True
+        self.plot_pid = False
         self.spatial_blur = DEFAULT_SPATIAL_BLUR
         self.temporal_blur = DEFAULT_TEMPORAL_BLUR
         self.plot_setting = ByStimIDPlotSetting.NONE
@@ -174,6 +180,10 @@ class ByStimIDModel:
     @property
     def rois(self: Self) -> ROIManager:
         return self.parent.rois
+
+    @property
+    def pid_reading_dict(self: Self) -> ROIManager:
+        return self.parent.pid_reading_dict
 
     @property
     def page_setting(self: Self) -> PageSetting:
@@ -259,6 +269,7 @@ class Model:
         self.h5_data, self.stim_condition_dict = self.load_h5(
             h5_path, h5_pickle_path)
         self.rois = ROIManager.from_zip(roi_zip_path)
+        self.pid_reading_dict = self.load_pid_reading_dict()
         self.page_setting = PageSetting.BY_TRIAL
         self.children = dict()
         self.create_children()
@@ -266,6 +277,10 @@ class Model:
     def load_tiff_file_paths(self: Self, tiff_folder_path: Path) -> list[Path]:
         return sorted(
             [f for f in tiff_folder_path.iterdir() if f.suffix == '.tif'])
+
+    def load_pid_reading_dict(self: Self) -> dict[tuple[Odor, int], float]:
+        d = get_pid_reading_dict()
+        return {(Odor.lookup(k[0]), k[1]): v for k, v in d.items()}
 
     def match_frames_with_timestamps(
         self: Self, arr: NDArray[np.int16], frame_times: NDArray[np.int64]

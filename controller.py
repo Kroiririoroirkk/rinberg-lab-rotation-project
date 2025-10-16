@@ -219,6 +219,7 @@ class ByStimIDController:
         self.view.spatial_blur_var.set(self.model.spatial_blur)
         self.view.temporal_blur_var.set(self.model.temporal_blur)
         self.view.plot_setting_var.set(self.model.plot_setting.value)
+        self.view.plot_pid_var.set(self.model.plot_pid)
 
     def update_model_vars(self: Self) -> None:
         self.parent.update_model_vars()
@@ -229,6 +230,7 @@ class ByStimIDController:
         self.model.temporal_blur = self.view.temporal_blur_var.get()
         self.model.plot_setting = ByStimIDPlotSetting(
             self.view.plot_setting_var.get())
+        self.model.plot_pid = self.view.plot_pid_var.get()
 
 
 class Controller:

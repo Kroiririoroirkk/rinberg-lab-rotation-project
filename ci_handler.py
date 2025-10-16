@@ -2,17 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
+
 import numpy as np
 import scipy.ndimage
 import tifffile
 from numpy.typing import NDArray
 from PIL import Image, ImageDraw
 
-from config import (BASELINE_AVG_END, BASELINE_AVG_START, CALCIUM_VIDEO_DT,
-                    HEAT_CMAP, MAX_DELTA_F, MIN_DELTA_F, NUM_FRAMES_AVG,
-                    NUM_FRAMES_BUYIN, BEFORE_ODOR_TIME, AFTER_ODOR_TIME,
+from config import (AFTER_ODOR_TIME, BASELINE_AVG_END, BASELINE_AVG_START,
+                    BEFORE_ODOR_TIME, CALCIUM_VIDEO_DT, HEAT_CMAP, MAX_DELTA_F,
+                    MIN_DELTA_F, NUM_FRAMES_AVG, NUM_FRAMES_BUYIN,
                     TIFF_EXPORT_PATH)
-from datatypes import ROIManager, ROIName, StimID
+from datatypes import Odor, ROIManager, ROIName, StimID
 
 if TYPE_CHECKING:
     from model import ByStimIDModel, ByTrialModel
@@ -60,12 +61,25 @@ class ByTrialCIHandler:
     def make_caption(self: Self, m: ByTrialModel) -> str:
         md = m.metadata
         sc = md.stim_condition
-        return (f'Average of {NUM_FRAMES_AVG} frames after odor presentation '
-                f'({m.tiff_path.name})\nOdors = '
-                f'{sc.odor1_flow} {sc.odor1} and '
-                f'{sc.odor2_flow} {sc.odor2}, '
-                f'Target = {md.target.value}, '
-                f'Response = {md.response.value}')
+        # Assume PID readings are for the odor 2 port
+        key = (sc.odor2, int(sc.odor2_flow))
+        if key in m.pid_reading_dict and sc.odor1 == Odor.EMPTY:
+            return (f'Average of {NUM_FRAMES_AVG} frames after odor '
+                    f'presentation ({m.tiff_path.name})\nOdors = '
+                    f'{sc.odor1_flow} {sc.odor1} and '
+                    f'{sc.odor2_flow} {sc.odor2} '
+                    f'(stim condition {md.stim_id}, est. PID reading '
+                    f'{m.pid_reading_dict[key]:.2e})\n'
+                    f'Target = {md.target.value}, '
+                    f'Response = {md.response.value}')
+        else:
+            return (f'Average of {NUM_FRAMES_AVG} frames after odor '
+                    f'presentation ({m.tiff_path.name})\nOdors = '
+                    f'{sc.odor1_flow} {sc.odor1} and '
+                    f'{sc.odor2_flow} {sc.odor2} '
+                    f'(stim condition {md.stim_id})\n'
+                    f'Target = {md.target.value}, '
+                    f'Response = {md.response.value}')
 
     def load_image(self: Self, tiff_path: Path) -> NDArray[np.int16]:
         return _load_image(tiff_path)
@@ -161,10 +175,21 @@ class ByStimIDCIHandler:
 
     def make_caption(self: Self, m: ByStimIDModel) -> str:
         sc = m.stim_condition
-        return (f'Average of {NUM_FRAMES_AVG} frames after odor presentation '
-                f'(average of all {m.num_trials_stim_id} stim ID {m.stim_id} '
-                f'trials)\nOdors = {sc.odor1_flow} {sc.odor1} and '
-                f'{sc.odor2_flow} {sc.odor2}')
+        # Assume PID readings are for the odor 2 port
+        key = (sc.odor2, int(sc.odor2_flow))
+        if key in m.pid_reading_dict and sc.odor1 == Odor.EMPTY:
+            return (f'Average of {NUM_FRAMES_AVG} frames after odor '
+                    f'presentation (average of all {m.num_trials_stim_id} '
+                    f'stim ID {m.stim_id} trials)\n'
+                    f'Odors = {sc.odor1_flow} {sc.odor1} and '
+                    f'{sc.odor2_flow} {sc.odor2} '
+                    f'(est. PID reading {m.pid_reading_dict[key]:.2e})')
+        else:
+            return (f'Average of {NUM_FRAMES_AVG} frames after odor '
+                    f'presentation (average of all {m.num_trials_stim_id} '
+                    f'stim ID {m.stim_id} trials)\n'
+                    f'Odors = {sc.odor1_flow} {sc.odor1} and '
+                    f'{sc.odor2_flow} {sc.odor2}')
 
     def load_image(
         self: Self,

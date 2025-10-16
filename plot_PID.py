@@ -7,23 +7,21 @@ photoionization (PID) measurements.
 
 Author: Eric Tao (Eric.Tao@nyulangone.org)
 Date created: 2025-10-03
-Date last updated: 2025-10-15
+Date last updated: 2025-10-16
 """
+from pathlib import Path
+
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
-from pathlib import Path
 import scipy.signal
 import scipy.stats
+from numpy.typing import NDArray
 
-DATA_DIR = Path('data/251003_passive_test2/PID_only')
-PID_H5 = Path(DATA_DIR, '251003_PID_0001-0120.h5')
-ODOR_H5 = Path(DATA_DIR, 'mouse0001_sess0_D2025_10_3T10_59_9.h5')
-FVALVE_CHANNEL = 3
-PID_CHANNEL = 4
+from config import PID_H5, PID_ODOR_H5, PID_FVALVE_CHANNEL, PID_CHANNEL
 
 
-def calc_dilution():
+def calc_dilution() -> dict[bytes, float]:
     """Calculate the mole fraction of ET in each step of a serial dilution.
 
     These values are for the recording done on 2025-10-03, calculated from
@@ -72,8 +70,8 @@ def calc_dilution():
     ET5_mole_fraction = ET5_ET_molarity / (ET5_ET_molarity + ET5_DH2O_molarity)
 
     return {
-        b'empty': 0,
-        b'ET1': 1,
+        b'empty': 0.0,
+        b'ET1': 1.0,
         b'ET2': ET2_mole_fraction,
         b'ET3': ET3_mole_fraction,
         b'ET4': ET4_mole_fraction,
@@ -81,12 +79,13 @@ def calc_dilution():
     }
 
 
-def lowpass(data, cutoff=0.001, order=5):
+def lowpass(data: NDArray[np.int16], cutoff: float = 0.001, order: int = 5):
     b, a = scipy.signal.butter(order, cutoff, btype='low')
-    return scipy.signal.filtfilt(b, a, data)
+    filt = scipy.signal.filtfilt(b, a, data)
+    return filt
 
 
-def detect_valve_on(valve_signal):
+def detect_valve_on(valve_signal: NDArray[np.int16]) -> tuple[int, int] | None:
     """Detect when the valve turns on.
 
     We expect that the valve graph starts at zero (<100) for at least 20000
@@ -121,9 +120,13 @@ def detect_valve_on(valve_signal):
     return jump_on_time, jump_off_time
 
 
-if __name__ == '__main__':
+String = np.dtype('S32')
+
+
+def calc_pid_readings() -> tuple[NDArray[String], NDArray[np.float64],
+                                 NDArray[np.float64], NDArray[np.float64]]:
     pid_f = h5py.File(PID_H5)
-    odor_f = h5py.File(ODOR_H5)
+    odor_f = h5py.File(PID_ODOR_H5)
     # There is a key sweep_xxxx for each trial as well as a header key.
     num_trials = len(pid_f.keys()) - 1
 
@@ -133,10 +136,11 @@ if __name__ == '__main__':
 
     mole_fractions_trial = []
     est_partial_pressure_trial = []
+    success_trials = []
     for i in range(num_trials):
         mole_fraction = mole_fractions[odors[i]]
         pid_sweep = pid_f[f'sweep_{i+1:04d}']
-        final_valve = pid_sweep['analogScans'][FVALVE_CHANNEL]
+        final_valve = pid_sweep['analogScans'][PID_FVALVE_CHANNEL]
         pid_reading = pid_sweep['analogScans'][PID_CHANNEL]
         filt_pid_reading = lowpass(pid_reading)
         valve_on_off = detect_valve_on(final_valve)
@@ -155,6 +159,7 @@ if __name__ == '__main__':
         est_partial_pressure = reading / med
         mole_fractions_trial.append(mole_fraction * dilution_ratio)
         est_partial_pressure_trial.append(est_partial_pressure)
+        success_trials.append(i)
         # plt.plot(final_valve, label='valve')
         # plt.plot(pid_reading, label='PID')
         # plt.axhline(med, color='red', linewidth=0.5)
@@ -163,6 +168,24 @@ if __name__ == '__main__':
         # plt.show()
     mole_fractions_trial = np.array(mole_fractions_trial)
     est_partial_pressure_trial = np.array(est_partial_pressure_trial)
+    return (odors[success_trials], dilution_ratios[success_trials],
+            mole_fractions_trial, est_partial_pressure_trial)
+
+
+def get_pid_reading_dict() -> dict[tuple[String, int], float]:
+    odors, dilution_ratios, _, est_partial_pressure_trial = calc_pid_readings()
+    stim_conds = list(set(zip(odors, dilution_ratios)))
+    pid_reading_dict = dict()
+    for o, r in stim_conds:
+        pressures = est_partial_pressure_trial[(odors == o)
+                                               & (dilution_ratios == r)]
+        pid_reading_dict[o, int(r)] = float(np.mean(pressures))
+    return pid_reading_dict
+
+
+if __name__ == '__main__':
+    _, _, mole_fractions_trial, est_partial_pressure_trial = calc_pid_readings(
+    )
     plt.scatter(mole_fractions_trial, est_partial_pressure_trial)
     plt.title('Raoult\'s law plot for ethyl tiglate')
     plt.xlabel('Mole fraction of ET in liquid mixture × dilution ratio')

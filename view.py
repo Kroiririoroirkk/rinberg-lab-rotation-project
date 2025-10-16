@@ -488,6 +488,13 @@ class ByStimIDView(ttk.Frame):
                                      value=s.value)
             button.configure(command=self.on_plot_setting_button)
             self.plot_buttons.append(button)
+        self.plot_pid_var = tk.BooleanVar()
+        self.plot_pid_button = ttk.Checkbutton(self.plot_button_frame,
+                                               text='Plot by PID readings?',
+                                               variable=self.plot_pid_var)
+        self.plot_pid_button.pack(side='bottom', padx=(0, SMALL_PAD))
+        self.plot_pid_button.configure(command=self.cue_update_job_wrapper(
+            update_image=False))
 
         self.page_switcher_frame = ttk.Frame(self.side_frame)
         self.page_switcher_frame.pack(side='bottom', fill='x')
@@ -551,10 +558,13 @@ class ByStimIDView(ttk.Frame):
             self.canvas.flush_events()
         self.toolbar.update()
 
-    def cue_update_job(self: Self, update_figure: bool = True) -> None:
+    def cue_update_job(self: Self,
+                       update_image: bool = True,
+                       update_figure: bool = True) -> None:
 
         def _update():
-            self.controller.update(redraw_figure=update_figure)
+            self.controller.update(redraw_image=update_image,
+                                   redraw_figure=update_figure)
             self.root_update_job = None
             self.root_updating_figure = False
 
@@ -563,10 +573,13 @@ class ByStimIDView(ttk.Frame):
         self.root_updating_figure = self.root_updating_figure or update_figure
         self.root_update_job = self.after(JOB_SCHEDULE_DELAY, _update)
 
-    def cue_update_job_wrapper(self: Self, update_figure: bool = True) -> None:
+    def cue_update_job_wrapper(self: Self,
+                               update_image: bool = True,
+                               update_figure: bool = True) -> None:
 
         def wrapper(*args: list[Any]):
-            self.cue_update_job(update_figure=update_figure)
+            self.cue_update_job(update_image=update_image,
+                                update_figure=update_figure)
 
         return wrapper
 
